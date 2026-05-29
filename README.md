@@ -196,15 +196,15 @@ This client supports customized ASI loaders and Cleo scripts. To activate modifi
 Download the latest optimized build of **SA:MP Mobile Client v2.10 (x64)** below:
 
 <p align="center">
-<a href="https://github.com/your-repository/releases">
+<a href="https://github.com/naphatsornbt/SA-MP-Mobile-Client-2.10-x64-/releases">
 <img src="https://img.shields.io/badge/Download-Latest%20APK-00C853?style=for-the-badge&logo=android&logoColor=white">
 </a>
 
-<a href="https://github.com/your-repository/releases">
+<a href="https://github.com/naphatsornbt/SA-MP-Mobile-Client-2.10-x64-/releases">
 <img src="https://img.shields.io/badge/Download-Game%20Data-2962FF?style=for-the-badge&logo=google-drive&logoColor=white">
 </a>
 
-<a href="https://github.com/your-repository/releases">
+<a href="https://github.com/naphatsornbt/SA-MP-Mobile-Client-2.10-x64-/releases">
 <img src="https://img.shields.io/github/size/naphatsornbt/https%3A%2F%2Fgithub.com%2Fnaphatsornbt%2FSA-MP-Mobile-Client-2.10-x64-/debug.apk
 ">
 </a>
@@ -221,12 +221,17 @@ Download the latest optimized build of **SA:MP Mobile Client v2.10 (x64)** below
 ดาวน์โหลดเวอร์ชันล่าสุดของ **SA:MP Mobile Client v2.10 (x64)** ได้จากปุ่มด้านล่าง:
 
 <p align="center">
-<a href="https://github.com/your-repository/releases">
+<a href="https://github.com/naphatsornbt/SA-MP-Mobile-Client-2.10-x64-/releases">
 <img src="https://img.shields.io/badge/ดาวน์โหลด-APK%20ล่าสุด-00C853?style=for-the-badge&logo=android&logoColor=white">
 </a>
 
-<a href="https://github.com/your-repository/releases">
+<a href="https://github.com/naphatsornbt/SA-MP-Mobile-Client-2.10-x64-/releases">
 <img src="https://img.shields.io/badge/ดาวน์โหลด-ไฟล์%20DATA-2962FF?style=for-the-badge&logo=google-drive&logoColor=white">
+</a>
+
+<a href="https://github.com/naphatsornbt/SA-MP-Mobile-Client-2.10-x64-/releases">
+<img src="https://img.shields.io/github/size/naphatsornbt/https%3A%2F%2Fgithub.com%2Fnaphatsornbt%2FSA-MP-Mobile-Client-2.10-x64-/debug.apk
+">
 </a>
 
 <a href="https://discord.gg/thdevelopercommu">
