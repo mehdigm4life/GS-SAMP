@@ -7,9 +7,10 @@ A modified and optimized source code for the **SA:MP Mobile Client v2.10 (x64)**
 ## 📸 Screenshots / รูปภาพตัวอย่าง
 
 
+
 | Main Menu / หน้าแรก | Gameplay / บรรยากาศในเกม | Chat Input / ระบบพิมพ์แชท |
 | :---: | :---: | :---: |
-| <img src="[screenshots/menu.png](https://www.blast.hk/attachments/264084/)" width="250" alt="Main Menu"> | <img src="[screenshots/gameplay.png](https://www.blast.hk/attachments/270754/)" width="250" alt="Gameplay"> | <img src="[screenshots/chat.png](https://www.blast.hk/attachments/264084/)" width="250" alt="Chat UI"> |
+| <img src="https://www.blast.hk/attachments/264084/" width="250" alt="Main Menu"> | <img src="ลิงก์รูปภาพที่ 2 เช่น https://github.com" width="250" alt="Gameplay"> | <img src="ลิงก์รูปภาพที่ 3 เช่น https://github.com" width="250" alt="Chat UI"> |
 
 > 💡 *Tip: Create a `screenshots` folder in your repository root and upload your images as `menu.png`, `gameplay.png`, and `chat.png`.*
 
