@@ -264,3 +264,82 @@ Join our community to get the latest updates, report bugs, or get help with the 
 
 ## 📜 License & Disclaimer
 This project is for educational and development purposes only. All rights to GTA: San Andreas belong to Rockstar Games, and SA:MP rights belong to the SA:MP Team.
+
+# ⚠️ Copyright & Intellectual Property
+
+© 2026 **นภัสสร ปิ่นเครือ (Naphatsorn Pinkruea)**
+All Rights Reserved.
+
+This repository, including source code, systems, architecture, UI/UX concepts, engineering structures, configurations, assets, and development workflows, is protected under international copyright and intellectual property laws.
+
+Unauthorized copying, redistribution, modification, reproduction, re-uploading, reverse engineering, or commercial usage of any part of this repository without explicit written permission is strictly prohibited.
+
+---
+
+### 🛡️ Protected Engineering Areas
+
+* Android Native Systems
+* Multiplayer Infrastructure
+* Full-Stack Architectures
+* AI Automation Systems
+* Reverse Engineering Research
+* Performance Optimization Techniques
+* Rendering & Networking Systems
+
+---
+
+### ⚡ Official Ownership
+
+**Owner:** นภัสสร ปิ่นเครือ
+**GitHub:** github.com/naphatsornbt
+
+---
+
+> “Performance First. Code Without Limits.”
+
+</div>
+
+---
+
+## 🔒 ใบอนุญาตและข้อกำหนดสิทธิ์ (Proprietary & Copyright License)
+
+**ลิขสิทธิ์ © 2026 naphatsornbt สงวนลิขสิทธิ์ตามกฎหมายทุกประการ**
+
+> [!CAUTION]
+> ### 🚨 คำเตือนและข้อตกลงสำคัญ (โปรดอ่านก่อนคิดจะคัดลอก)
+> ผลงาน โครงสร้าง ดีไซน์ และซอร์สโค้ดทั้งหมดใน Repository นี้ เป็นทรัพย์สินทางปัญญาของ **naphatsornbt** แต่เพียงผู้เดียว **ไม่อนุญาต** ให้ทำการคัดลอก ดัดแปลง แจกจ่าย หรือนำไปแอบอ้างเป็นผลงานของตนเองไม่ว่ากรณีใด ๆ ทั้งสิ้น
+
+### 🚫 ข้อห้ามเด็ดขาด (Strict Prohibitions)
+1. **ห้าม Copy-Paste เนียน:** ห้ามดึงเอาดีไซน์ ส่วนประกอบ มาร์คดาว หรือโค้ดส่วนใดส่วนหนึ่งไปใช้ใน Profile หรือ Repository ของตัวเองโดยไม่ได้รับอนุญาตเป็นลายลักษณ์อักษร
+2. **ห้ามนำไปใช้ในเชิงพาณิชย์:** ห้ามนำไอเดีย โครงสร้าง หรือโค้ดจากโปรเจกต์นี้ (รวมถึง SOURCE ต่างๆ) ไปใช้ในการแสวงหาผลประโยชน์ เม็ดเงิน หรือผลงานทางวิชาการ/วิชาชีพของตนเอง
+3. **ห้าม Re-upload:** ห้ามนำซอร์สโค้ดทั้งหมดไปอัปโหลดขึ้น GitHub ใหม่ในบัญชีอื่นเด็ดขาด
+
+### ⚖️ การดำเนินการเมื่อพบการละเมิดสิทธิ์
+หากตรวจพบว่ามีการคัดลอก หรือลอกเลียนแบบผลงาน ทางเจ้าของผลงานจะดำเนินการดังนี้ทันทีโดยไม่มีการแจ้งเตือนล่วงหน้า:
+*   **GitHub DMCA Takedown Notice:** ยื่นรายงานต่อ GitHub เพื่อลบ Repository หรือปิดบัญชีผู้ละเมิดสิทธิ์ทันทีตามกฎหมายลิขสิทธิ์ดิจิทัล
+*   **Public Shaming:** ประกาศประจานลิงก์และบัญชีผู้ที่ทำการคัดลอกผลงานในพื้นที่สาธารณะ
+*   **Legal Action:** ดำเนินคดีตามกฎหมายว่าด้วยการละเมิดทรัพย์สินทางปัญญาและ พ.ร.บ. คอมพิวเตอร์ จนถึงที่สุด
+
+*การที่คุณเข้าชม นำไปดู หรือดาวน์โหลดเพื่อศึกษา แปลว่าคุณได้ยอมรับข้อตกลงนี้แล้ว*
+
+> [!WARNING]
+> ### TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+### 1. Ownership & Restrictions
+All contents, including but not limited to source code, documentation, graphics, layout, and markdown structures in this repository, are the exclusive property of **naphatsornbt**. 
+* **NO LICENSE IS GRANTED** for commercial use, public redistribution, or modification.
+* You may **NOT** clone, fork, or copy this repository with the intent to host it as your own work.
+
+### 2. Zero Tolerance Enforcement
+Any detected infringement, plagiarism, or unauthorized redistribution will be met with immediate enforcement actions, including but not limited to:
+1. **GitHub DMCA Infringement Reports** to permanently remove the infringing repositories and disable the offender's account.
+2. Legal cease-and-desist notices where applicable.
+
+---
+**By accessing or viewing this repository, you acknowledge and agree to be strictly bound by these terms.**
+
+---
+
+## 📄 Proprietary License & Terms of Service
+
+**Copyright © 2026 naphatsornbt. All rights reserved.**
