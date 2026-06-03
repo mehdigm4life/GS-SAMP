@@ -1,10 +1,3 @@
-/*
-	BASS 2.4 C/C++ header file
-	Copyright (c) 1999-2022 Un4seen Developments Ltd.
-
-	See the BASS.CHM file for more detailed documentation
-*/
-
 #ifndef BASS_H
 #define BASS_H
 
