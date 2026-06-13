@@ -258,8 +258,6 @@ Join our community to get the latest updates, report bugs, or get help with the 
 
 [![Discord Shield](https://shields.io)](https://discord.gg/thdevelopercommu)
 
-*Note: Replace `https://discord.gg` with your actual Discord server link.*
-
 ---
 
 ## 📜 License & Disclaimer
