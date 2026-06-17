@@ -1,16 +1,14 @@
-package com.mehdigm.compiler.utils;
+package com.mehdigm.gssamp.logger;
 
 import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Build;
-import android.os.Environment;
 import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.SimpleDateFormat;
@@ -25,8 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class AppLogger {
     private static final String LOG_FILE_NAME = "logcat.log";
     private static final long MAX_LOG_SIZE = 2L * 1024 * 1024;
-    private static final String TAG = "GSCompiler";
-    private static final String FOLDER_NAME = "GS SAMP";
+    private static final String TAG = "GSSAMP";
+    private static final String FOLDER_NAME = "GS_SAMP";
 
     private static File logFile;
     private static ExecutorService executor;
@@ -158,13 +156,14 @@ public class AppLogger {
     }
 
     private static File getLogFile(Context context) {
-        try {
-            File base = new File(Environment.getExternalStorageDirectory(), FOLDER_NAME);
-            if (base.exists() || base.mkdirs()) {
-                return new File(base, LOG_FILE_NAME);
-            }
-        } catch (Exception ignored) {}
-        return new File(context.getFilesDir(), LOG_FILE_NAME);
+        File base = context.getExternalFilesDir(FOLDER_NAME);
+        if (base == null) {
+            base = new File(context.getFilesDir(), FOLDER_NAME);
+        }
+        if (!base.exists()) {
+            base.mkdirs();
+        }
+        return new File(base, LOG_FILE_NAME);
     }
 
     private static void writeEntry(LogEntry entry) {

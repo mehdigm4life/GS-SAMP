@@ -5,6 +5,7 @@ import android.util.Log;
 import android.view.KeyEvent;
 
 import com.joom.paranoid.Obfuscate;
+import com.mehdigm.gssamp.logger.AppLogger;
 import com.samp.mobile.game.ui.AttachEdit;
 import com.samp.mobile.game.ui.CustomKeyboard;
 import com.samp.mobile.game.ui.LoadingScreen;
@@ -164,8 +165,9 @@ public class SAMP extends GTASA implements CustomKeyboard.InputListener, HeightP
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        Log.i(TAG, "**** onCreate");
         super.onCreate(savedInstanceState);
+        AppLogger.start(this);
+        Log.i(TAG, "**** onCreate");
 
         //mHeightProvider = new HeightProvider(this);
 
