@@ -5,5 +5,5 @@ pluginManagement {
         mavenCentral()
     }
 }
-rootProject.name = "SAMP-2.10 ALEEF"
+rootProject.name = "GS-SAMP"
 include ':app'
