@@ -121,16 +121,20 @@ public class DataDownloadActivity extends AppCompatActivity {
             downloadFile(DataConstants.DATA_ZIP_URL, zipFile);
 
             setStatus("Extracting files...");
-            progressBar.setIndeterminate(false);
-            progressBar.setMax(totalFiles);
+            handler.post(() -> {
+                progressBar.setIndeterminate(false);
+                progressBar.setMax(totalFiles);
+            });
 
             int extracted = extractZip(zipFile, dataDir, files);
 
             zipFile.delete();
 
             setStatus("Verifying files...");
-            progressBar.setIndeterminate(true);
-            tvCurrentFile.setVisibility(View.GONE);
+            handler.post(() -> {
+                progressBar.setIndeterminate(true);
+                tvCurrentFile.setVisibility(View.GONE);
+            });
 
             int verified = 0;
             Iterator<String> keys = files.keys();
@@ -233,7 +237,7 @@ public class DataDownloadActivity extends AppCompatActivity {
         conn.setInstanceFollowRedirects(true);
 
         int totalSize = conn.getContentLength();
-        progressBar.setIndeterminate(false);
+        handler.post(() -> progressBar.setIndeterminate(false));
 
         try (InputStream in = conn.getInputStream();
              FileOutputStream fos = new FileOutputStream(output)) {
