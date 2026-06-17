@@ -48,13 +48,16 @@
                 android:resource="@xml/provider_paths" />
         </provider>
 
-        <!-- MainActivity с явным android:exported -->
         <activity
-            android:name="com.samp.mobile.launcher.activity.MainActivity"
+            android:name="com.samp.mobile.launcher.activity.LauncherActivity"
             android:screenOrientation="landscape"
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:windowSoftInputMode="adjustNothing"
             android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
         </activity>
 
         <activity
@@ -72,10 +75,6 @@
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustPan"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
     </application>
 </manifest>
