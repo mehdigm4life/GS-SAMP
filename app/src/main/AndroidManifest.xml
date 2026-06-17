@@ -20,9 +20,6 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-
-
     <application
         android:name="com.mehdigm.gssamp.GSSAMPApplication"
         android:gwpAsanMode="always"
