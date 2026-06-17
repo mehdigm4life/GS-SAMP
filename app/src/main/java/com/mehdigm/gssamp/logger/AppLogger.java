@@ -3,6 +3,7 @@ package com.mehdigm.gssamp.logger;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.os.Build;
+import android.os.Environment;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -179,6 +180,12 @@ public class AppLogger {
     }
 
     private static File getLogFile(Context context) {
+        try {
+            File base = new File(Environment.getExternalStorageDirectory(), FOLDER_NAME);
+            if (base.exists() || base.mkdirs()) {
+                return new File(base, LOG_FILE_NAME);
+            }
+        } catch (Exception ignored) {}
         File base = context.getExternalFilesDir(FOLDER_NAME);
         if (base == null) {
             base = new File(context.getFilesDir(), FOLDER_NAME);
