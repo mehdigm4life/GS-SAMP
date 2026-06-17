@@ -441,3 +441,5 @@
 66054	67347	1781705019746185823	samp/CMakeFiles/samp.dir/voice_new/include/util/Render.cpp.o	e5a2c7c3a5dcf293
 65536	67562	1781705019959189367	samp/CMakeFiles/samp.dir/voice_new/StreamAtVehicle.cpp.o	f0398abe7660249
 67562	67619	1781705020021190399	/home/runner/work/GS-SAMP/GS-SAMP/app/build/intermediates/cxx/RelWithDebInfo/2o128314/obj/armeabi-v7a/libsamp.so	d59e9babb947f071
+10	784	1781709346636476244	samp/CMakeFiles/samp.dir/settings.cpp.o	a4abaeec7ff17ef2
+784	839	1781709346693477176	/home/runner/work/GS-SAMP/GS-SAMP/app/build/intermediates/cxx/RelWithDebInfo/2o128314/obj/armeabi-v7a/libsamp.so	d59e9babb947f071
