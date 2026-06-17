@@ -40,6 +40,7 @@ include_directories(
         ${CMAKE_CURRENT_LIST_DIR}/game/RW/
         ${CMAKE_CURRENT_LIST_DIR}/game/Core/
         ${CMAKE_CURRENT_LIST_DIR}/game_sa/
+        ${CMAKE_CURRENT_LIST_DIR}/gui/
 )
 
 # Opus
