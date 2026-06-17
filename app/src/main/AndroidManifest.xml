@@ -69,6 +69,11 @@
             android:exported="false">
         </activity>
 
+        <service
+            android:name="com.samp.mobile.data.DownloadService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
         <activity
             android:name="com.samp.mobile.game.SAMP"
             android:screenOrientation="landscape"

@@ -1,52 +1,37 @@
 package com.samp.mobile.data;
 
-import android.app.ProgressDialog;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
-
-import com.samp.mobile.R;
+import android.content.IntentFilter;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
-import org.json.JSONObject;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.security.MessageDigest;
-import java.util.Iterator;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import com.samp.mobile.R;
+import com.samp.mobile.game.SAMP;
 
 public class DataDownloadActivity extends AppCompatActivity {
-    private static final String TAG = "DataDL";
     private TextView tvStatus, tvCurrentFile, tvProgress;
     private ProgressBar progressBar;
     private Button btnRetry;
     private View contentView, errorView;
-    private Handler handler;
+    private BroadcastReceiver receiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        setContentView(getLayoutResId());
-
-        handler = new Handler(Looper.getMainLooper());
+        setContentView(R.layout.activity_data_download);
 
         tvStatus = findViewById(R.id.tv_download_status);
         tvCurrentFile = findViewById(R.id.tv_current_file);
@@ -57,214 +42,94 @@ public class DataDownloadActivity extends AppCompatActivity {
         errorView = findViewById(R.id.error_content);
 
         btnRetry.setOnClickListener(v -> startDownload());
+
+        receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                String action = intent.getAction();
+                if (DownloadService.BROADCAST_PROGRESS.equals(action)) {
+                    String status = intent.getStringExtra(DownloadService.EXTRA_STATUS);
+                    int progress = intent.getIntExtra(DownloadService.EXTRA_PROGRESS, 0);
+                    int total = intent.getIntExtra(DownloadService.EXTRA_TOTAL, 0);
+                    updateUI(status, progress, total);
+                } else if (DownloadService.BROADCAST_COMPLETE.equals(action)) {
+                    onDownloadComplete();
+                } else if (DownloadService.BROADCAST_ERROR.equals(action)) {
+                    String msg = intent.getStringExtra(DownloadService.EXTRA_STATUS);
+                    showError(msg);
+                }
+            }
+        };
+
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(DownloadService.BROADCAST_PROGRESS);
+        filter.addAction(DownloadService.BROADCAST_COMPLETE);
+        filter.addAction(DownloadService.BROADCAST_ERROR);
+        registerReceiver(receiver, filter);
+
         startDownload();
     }
 
-    private int getLayoutResId() {
-        return R.layout.activity_data_download;
-    }
-
-    private void setStatus(final String text) {
-        handler.post(() -> tvStatus.setText(text));
-    }
-
-    private void setCurrentFile(final String text) {
-        handler.post(() -> {
-            tvCurrentFile.setText(text);
-            tvCurrentFile.setVisibility(View.VISIBLE);
-        });
-    }
-
-    private void setProgress(final int current, final int total) {
-        handler.post(() -> {
-            progressBar.setMax(total);
-            progressBar.setProgress(current);
-            tvProgress.setText(current + " / " + total + " files");
-        });
-    }
-
-    private void showError(final String message) {
-        handler.post(() -> {
-            contentView.setVisibility(View.GONE);
-            errorView.setVisibility(View.VISIBLE);
-            ((TextView) findViewById(R.id.tv_error_message)).setText(message);
-        });
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (receiver != null) {
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(receiver);
+        }
     }
 
     private void startDownload() {
         contentView.setVisibility(View.VISIBLE);
         errorView.setVisibility(View.GONE);
         progressBar.setIndeterminate(true);
-        tvStatus.setText("Connecting...");
+        tvStatus.setText("Starting download...");
         tvCurrentFile.setVisibility(View.GONE);
         tvProgress.setText("");
 
-        new Thread(this::doDownload).start();
+        Intent intent = new Intent(this, DownloadService.class);
+        intent.setAction(DownloadService.ACTION_START);
+        startForegroundService(intent);
     }
 
-    private void doDownload() {
-        try {
-            setStatus("Downloading manifest...");
-            String jsonStr = downloadUrlToString(DataConstants.MANIFEST_URL);
-            JSONObject manifest = new JSONObject(jsonStr);
-            JSONObject files = manifest.getJSONObject("files");
-            int totalFiles = files.length();
-
-            File dataDir = getExternalFilesDir(null);
-            if (dataDir == null) {
-                showError("Storage not available");
-                return;
-            }
-
-            setStatus("Downloading game data...");
-            File zipFile = new File(getCacheDir(), "gs_data_download.zip");
-            downloadFile(DataConstants.DATA_ZIP_URL, zipFile);
-
-            setStatus("Extracting files...");
-            handler.post(() -> {
+    private void updateUI(final String status, final int progress, final int total) {
+        runOnUiThread(() -> {
+            tvStatus.setText(status);
+            if (total > 0) {
                 progressBar.setIndeterminate(false);
-                progressBar.setMax(totalFiles);
-            });
-
-            int extracted = extractZip(zipFile, dataDir, files);
-
-            zipFile.delete();
-
-            setStatus("Verifying files...");
-            handler.post(() -> {
+                progressBar.setMax(total);
+                progressBar.setProgress(progress);
+                if (status.startsWith("Downloading") && total <= 100) {
+                    tvProgress.setText(progress + "%");
+                } else {
+                    tvProgress.setText(progress + " / " + total);
+                }
+            } else {
                 progressBar.setIndeterminate(true);
-                tvCurrentFile.setVisibility(View.GONE);
-            });
-
-            int verified = 0;
-            Iterator<String> keys = files.keys();
-            while (keys.hasNext()) {
-                String path = keys.next();
-                JSONObject info = files.getJSONObject(path);
-                File f = new File(dataDir, path);
-                if (!f.exists() || !DataVerifier.sha256(f).equals(info.getString("sha256"))) {
-                    final String failedFile = path;
-                    showError("Verification failed: " + failedFile);
-                    return;
-                }
-                verified++;
-                final int v = verified;
-                handler.post(() -> tvProgress.setText("Verifying " + v + " / " + totalFiles));
+                tvProgress.setText("");
             }
-
-            handler.post(() -> {
-                tvStatus.setText("All files ready!");
-                tvProgress.setText("Completed successfully");
-                progressBar.setIndeterminate(false);
-                progressBar.setProgress(progressBar.getMax());
-
-                Toast.makeText(DataDownloadActivity.this, "Data installed successfully", Toast.LENGTH_LONG).show();
-
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    Intent intent = new Intent(DataDownloadActivity.this, com.samp.mobile.game.SAMP.class);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                    startActivity(intent);
-                    finish();
-                }, 1500);
-            });
-
-        } catch (Exception e) {
-            Log.e(TAG, "Download failed", e);
-            showError("Download failed: " + e.getMessage());
-        }
+        });
     }
 
-    private int extractZip(File zipFile, File destDir, JSONObject manifest) throws Exception {
-        JSONObject files = manifest.getJSONObject("files");
-        int count = 0;
-        int total = files.length();
+    private void onDownloadComplete() {
+        tvStatus.setText("All files ready!");
+        tvProgress.setText("Completed successfully");
+        progressBar.setIndeterminate(false);
+        progressBar.setProgress(progressBar.getMax());
 
-        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(zipFile))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                String name = entry.getName();
-                if (entry.isDirectory()) {
-                    new File(destDir, name).mkdirs();
-                    continue;
-                }
-
-                String relativePath = name;
-                if (relativePath.startsWith("files/")) {
-                    relativePath = relativePath.substring(6);
-                }
-
-                final String displayName = relativePath;
-                setCurrentFile(displayName);
-
-                File outFile = new File(destDir, relativePath);
-                outFile.getParentFile().mkdirs();
-
-                try (FileOutputStream fos = new FileOutputStream(outFile)) {
-                    byte[] buf = new byte[65536];
-                    int n;
-                    while ((n = zis.read(buf)) != -1) fos.write(buf, 0, n);
-                }
-                zis.closeEntry();
-
-                count++;
-                setProgress(count, total);
-            }
-        }
-        return count;
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            Intent intent = new Intent(DataDownloadActivity.this, SAMP.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+        }, 1500);
     }
 
-    private String downloadUrlToString(String urlStr) throws Exception {
-        URL url = new URL(urlStr);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(15000);
-        conn.setInstanceFollowRedirects(true);
-        InputStream in = conn.getInputStream();
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        int n;
-        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-        in.close();
-        conn.disconnect();
-        return out.toString("UTF-8");
-    }
-
-    private void downloadFile(String urlStr, File output) throws Exception {
-        URL url = new URL(urlStr);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(30000);
-        conn.setInstanceFollowRedirects(true);
-
-        int totalSize = conn.getContentLength();
-        handler.post(() -> progressBar.setIndeterminate(false));
-
-        try (InputStream in = conn.getInputStream();
-             FileOutputStream fos = new FileOutputStream(output)) {
-            byte[] buf = new byte[65536];
-            int downloaded = 0;
-            int n;
-            while ((n = in.read(buf)) != -1) {
-                fos.write(buf, 0, n);
-                downloaded += n;
-                if (totalSize > 0) {
-                    final int d = downloaded;
-                    final int t = totalSize;
-                    handler.post(() -> {
-                        progressBar.setMax(t);
-                        progressBar.setProgress(d);
-                        tvProgress.setText(formatSize(d) + " / " + formatSize(t));
-                    });
-                }
-            }
-        }
-        conn.disconnect();
-    }
-
-    private String formatSize(int bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1048576) return String.format("%.1f KB", bytes / 1024f);
-        return String.format("%.1f MB", bytes / 1048576f);
+    private void showError(final String message) {
+        runOnUiThread(() -> {
+            contentView.setVisibility(View.GONE);
+            errorView.setVisibility(View.VISIBLE);
+            ((TextView) findViewById(R.id.tv_error_message)).setText(message);
+        });
     }
 
     @Override
@@ -273,6 +138,9 @@ public class DataDownloadActivity extends AppCompatActivity {
                 .setTitle("Cancel Download?")
                 .setMessage("Game data is required to play. Are you sure you want to exit?")
                 .setPositiveButton("Exit", (d, w) -> {
+                    Intent intent = new Intent(this, DownloadService.class);
+                    intent.setAction(DownloadService.ACTION_CANCEL);
+                    startForegroundService(intent);
                     finishAffinity();
                     System.exit(0);
                 })
