@@ -32,6 +32,7 @@ public class AppLogger {
     private static AtomicBoolean enabled = new AtomicBoolean(false);
     private static AtomicBoolean started = new AtomicBoolean(false);
     private static Thread.UncaughtExceptionHandler defaultExceptionHandler;
+    private static Process logcatProcess;
 
     private static class LogEntry {
         char level;
@@ -97,12 +98,18 @@ public class AppLogger {
             logSystemInfo(context);
             i(TAG, "AppLogger started");
         });
+
+        startLogcat(context);
     }
 
     public static void stop() {
         if (!started.get()) return;
         enabled.set(false);
         started.set(false);
+        if (logcatProcess != null) {
+            logcatProcess.destroy();
+            logcatProcess = null;
+        }
         if (executor != null) {
             executor.shutdownNow();
             executor = null;
@@ -120,6 +127,22 @@ public class AppLogger {
                 defaultExceptionHandler.uncaughtException(thread, throwable);
             }
         });
+    }
+
+    private static void startLogcat(Context context) {
+        try {
+            int pid = android.os.Process.myPid();
+            String logFilePath = logFile.getAbsolutePath();
+            ProcessBuilder pb = new ProcessBuilder(
+                    "logcat", "-v", "time",
+                    "--pid=" + pid,
+                    "-f", logFilePath,
+                    "-r", "1024",
+                    "-n", "3"
+            );
+            pb.redirectErrorStream(true);
+            logcatProcess = pb.start();
+        } catch (Exception ignored) {}
     }
 
     private static void logSystemInfo(Context context) {
