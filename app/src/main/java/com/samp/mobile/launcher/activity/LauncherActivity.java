@@ -8,6 +8,7 @@ import android.view.View;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.samp.mobile.R;
 import com.samp.mobile.data.DataDownloadActivity;
 import com.samp.mobile.data.DataVerifier;
 import com.samp.mobile.game.SAMP;
@@ -33,15 +34,14 @@ public class LauncherActivity extends AppCompatActivity {
 
     private void showDataMissingDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
-        View view = LayoutInflater.from(this).inflate(
-                getResources().getIdentifier("dialog_data_missing", "layout", getPackageName()), null);
+        View view = LayoutInflater.from(this).inflate(R.layout.dialog_data_missing, null);
         builder.setView(view);
         builder.setCancelable(false);
 
         AlertDialog dialog = builder.create();
         dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
 
-        view.findViewById(getResources().getIdentifier("btn_download", "id", getPackageName()))
+        view.findViewById(R.id.btn_download)
                 .setOnClickListener(v -> {
                     dialog.dismiss();
                     Intent intent = new Intent(this, DataDownloadActivity.class);
@@ -49,7 +49,7 @@ public class LauncherActivity extends AppCompatActivity {
                     finish();
                 });
 
-        view.findViewById(getResources().getIdentifier("btn_exit", "id", getPackageName()))
+        view.findViewById(R.id.btn_exit)
                 .setOnClickListener(v -> {
                     dialog.dismiss();
                     finishAndRemoveTask();
