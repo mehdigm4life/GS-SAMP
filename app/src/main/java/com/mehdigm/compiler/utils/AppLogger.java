@@ -117,7 +117,7 @@ public class AppLogger {
             String stackTrace = stackTraceToString(throwable);
             String msg = "UNCAUGHT EXCEPTION on " + thread.getName() + " (" + thread.getId() + ")\n" + stackTrace;
             Log.e("CRASH", msg);
-            writeEntryImmediate(new LogEntry('C', "CRASH", msg));
+            writeEntryImmediate(new LogEntry('C', "CRASH", msg, System.currentTimeMillis()));
             if (defaultExceptionHandler != null) {
                 defaultExceptionHandler.uncaughtException(thread, throwable);
             }
