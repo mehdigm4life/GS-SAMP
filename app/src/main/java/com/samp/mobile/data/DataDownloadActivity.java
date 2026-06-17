@@ -61,7 +61,7 @@ public class DataDownloadActivity extends AppCompatActivity {
     }
 
     private int getLayoutResId() {
-        return getResources().getIdentifier("activity_data_download", "layout", getPackageName());
+        return R.layout.activity_data_download;
     }
 
     private void setStatus(final String text) {
@@ -144,7 +144,7 @@ public class DataDownloadActivity extends AppCompatActivity {
                 File f = new File(dataDir, path);
                 if (!f.exists() || !DataVerifier.sha256(f).equals(info.getString("sha256"))) {
                     final String failedFile = path;
-                    handler.post(() -> showError("Verification failed: " + failedFile));
+                    showError("Verification failed: " + failedFile);
                     return;
                 }
                 verified++;
