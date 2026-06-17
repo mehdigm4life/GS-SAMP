@@ -179,6 +179,7 @@ This client supports customized ASI loaders and Cleo scripts. To activate modifi
 ---
 
 ## 👥 Development Team & Credits
+* **Owner & Developer:** Mehdi GM
 * **Development Team:** [MAYDEV]
 * **Development Team Support:** [LoganOMP / ChenH4X / NewOMP / Justin]
 * **Team:** [Girl Developer / Lux Developer]
@@ -261,5 +262,13 @@ Join our community to get the latest updates, report bugs, or get help with the 
 
 ## 📜 License & Disclaimer
 This project is for educational and development purposes only. All rights to GTA: San Andreas belong to Rockstar Games, and SA:MP rights belong to the SA:MP Team.
+
+---
+
+## © Copyright
+
+**Copyright © 2026 Mehdi GM. All rights reserved.**
+
+This repository, including source code, systems, architecture, and configurations, is the property of Mehdi GM. Unauthorized copying, redistribution, or modification without explicit permission is prohibited.
 
 
