@@ -6,16 +6,16 @@ plugins {
 android {
     signingConfigs {
         debug {
-            storeFile file("../app/src/main/key.jks")
-            storePassword "12348765"
-            keyAlias "tgrpKey"
-            keyPassword "12348765"
+            storeFile file("../app/src/main/gssamp.jks")
+            storePassword "sniperride4v5.G4mer123456789"
+            keyAlias "gssamp4life"
+            keyPassword "sniperride4v5.G4mer123456789"
         }
         release {
-            storeFile file("../app/src/main/key.jks")
-            storePassword "12348765"
-            keyAlias "tgrpKey"
-            keyPassword "12348765"
+            storeFile file("../app/src/main/gssamp.jks")
+            storePassword "sniperride4v5.G4mer123456789"
+            keyAlias "gssamp4life"
+            keyPassword "sniperride4v5.G4mer123456789"
         }
     }
     compileSdk 34
