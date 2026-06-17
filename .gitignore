@@ -1,0 +1,10 @@
+*.jks
+keystore.properties
+.idea/
+*.iml
+.DS_Store
+build/
+app/build/
+/captures
+.externalNativeBuild/
+.local/
