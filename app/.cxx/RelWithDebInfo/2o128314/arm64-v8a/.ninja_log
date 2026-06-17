@@ -443,3 +443,5 @@
 67516	67571	1781704950793045637	/home/runner/work/GS-SAMP/GS-SAMP/app/build/intermediates/cxx/RelWithDebInfo/2o128314/obj/arm64-v8a/libsamp.so	3e6d48fd743b43ce
 15	833	1781709345759461898	samp/CMakeFiles/samp.dir/settings.cpp.o	df05894513253a03
 833	887	1781709345815462814	/home/runner/work/GS-SAMP/GS-SAMP/app/build/intermediates/cxx/RelWithDebInfo/2o128314/obj/arm64-v8a/libsamp.so	3e6d48fd743b43ce
+16	1052	1781709848403182575	samp/CMakeFiles/samp.dir/game/hooks.cpp.o	50eea654eaa7a412
+1052	1108	1781709848464183580	/home/runner/work/GS-SAMP/GS-SAMP/app/build/intermediates/cxx/RelWithDebInfo/2o128314/obj/arm64-v8a/libsamp.so	3e6d48fd743b43ce

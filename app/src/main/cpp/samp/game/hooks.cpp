@@ -1497,8 +1497,9 @@ stFile* NvFOpen(const char* r0, const char* r1, int r2, int r3)
     else
     {
         FLog("NVFOpen hook | Error: file not found (%s)", path);
-        free(st);
-        return nullptr;
+        st->isFileExist = false;
+        st->f = fopen("/dev/null", "rb");
+        return st;
     }
 }
 
