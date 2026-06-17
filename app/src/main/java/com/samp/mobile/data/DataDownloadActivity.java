@@ -74,7 +74,7 @@ public class DataDownloadActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (receiver != null) {
-            LocalBroadcastManager.getInstance(this).unregisterReceiver(receiver);
+            unregisterReceiver(receiver);
         }
     }
 
