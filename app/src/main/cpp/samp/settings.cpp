@@ -18,8 +18,7 @@ CSettings::CSettings()
 
 	if(reader.ParseError() < 0)
 	{
-		FLog("Error: can't load %s", buff);
-		std::terminate();
+		FLog("Error: can't load %s, using defaults", buff);
 		return;
 	}
 

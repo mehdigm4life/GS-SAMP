@@ -167,6 +167,7 @@ public class SAMP extends GTASA implements CustomKeyboard.InputListener, HeightP
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        createSettingsIni();
         super.onCreate(savedInstanceState);
         AppLogger.start(this);
         Log.i(TAG, "**** onCreate");
@@ -183,8 +184,6 @@ public class SAMP extends GTASA implements CustomKeyboard.InputListener, HeightP
 
 
         instance = this;
-
-        createSettingsIni();
 
         try {
             initializeSAMP();
