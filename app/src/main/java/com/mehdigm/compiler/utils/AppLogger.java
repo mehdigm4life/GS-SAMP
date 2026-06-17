@@ -133,7 +133,13 @@ public class AppLogger {
         i(TAG, "Memory class: " + getMemoryClass(context) + "MB");
         try {
             android.content.pm.PackageInfo pkg = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
-            i(TAG, "App version: " + (pkg.versionName != null ? pkg.versionName : "unknown") + " (" + pkg.longVersionCode + ")");
+            long vc;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                vc = pkg.getLongVersionCode();
+            } else {
+                vc = pkg.versionCode;
+            }
+            i(TAG, "App version: " + (pkg.versionName != null ? pkg.versionName : "unknown") + " (" + vc + ")");
         } catch (Exception ignored) {}
         Runtime rt = Runtime.getRuntime();
         i(TAG, "JVM max memory: " + (rt.maxMemory() / 1024 / 1024) + "MB");
