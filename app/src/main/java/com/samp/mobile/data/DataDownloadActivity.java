@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -65,7 +66,11 @@ public class DataDownloadActivity extends AppCompatActivity {
         filter.addAction(DownloadService.BROADCAST_PROGRESS);
         filter.addAction(DownloadService.BROADCAST_COMPLETE);
         filter.addAction(DownloadService.BROADCAST_ERROR);
-        registerReceiver(receiver, filter);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(receiver, filter);
+        }
 
         startDownload();
     }
