@@ -1,11 +1,19 @@
 package com.samp.mobile.game;
 
+import android.app.AlertDialog;
+import android.content.DialogInterface;
+import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.LayoutInflater;
+import android.view.View;
 
 import com.joom.paranoid.Obfuscate;
 import com.mehdigm.gssamp.logger.AppLogger;
+import com.samp.mobile.data.DataConstants;
+import com.samp.mobile.data.DataDownloadActivity;
+import com.samp.mobile.data.DataVerifier;
 import com.samp.mobile.game.ui.AttachEdit;
 import com.samp.mobile.game.ui.CustomKeyboard;
 import com.samp.mobile.game.ui.LoadingScreen;
@@ -168,11 +176,15 @@ public class SAMP extends GTASA implements CustomKeyboard.InputListener, HeightP
     @Override
     public void onCreate(Bundle savedInstanceState) {
         createSettingsIni();
-        super.onCreate(savedInstanceState);
         AppLogger.start(this);
         Log.i(TAG, "**** onCreate");
 
-        //mHeightProvider = new HeightProvider(this);
+        if (!DataVerifier.quickCheck(this)) {
+            showDataMissingDialog();
+            return;
+        }
+
+        super.onCreate(savedInstanceState);
 
         mKeyboard = new CustomKeyboard(this);
 
@@ -191,6 +203,34 @@ public class SAMP extends GTASA implements CustomKeyboard.InputListener, HeightP
             Log.e(TAG, e5.getMessage());
         }
 
+    }
+
+    private void showDataMissingDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        View view = LayoutInflater.from(this).inflate(
+                getResources().getIdentifier("dialog_data_missing", "layout", getPackageName()), null);
+        builder.setView(view);
+        builder.setCancelable(false);
+
+        AlertDialog dialog = builder.create();
+        dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+
+        view.findViewById(getResources().getIdentifier("btn_download", "id", getPackageName()))
+                .setOnClickListener(v -> {
+                    dialog.dismiss();
+                    Intent intent = new Intent(this, DataDownloadActivity.class);
+                    startActivity(intent);
+                    finish();
+                });
+
+        view.findViewById(getResources().getIdentifier("btn_exit", "id", getPackageName()))
+                .setOnClickListener(v -> {
+                    dialog.dismiss();
+                    finishAndRemoveTask();
+                    System.exit(0);
+                });
+
+        dialog.show();
     }
 
     private void createSettingsIni() {

@@ -58,6 +58,13 @@
         </activity>
 
         <activity
+            android:name="com.samp.mobile.data.DataDownloadActivity"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.AppCompat.NoActionBar"
+            android:exported="false">
+        </activity>
+
+        <activity
             android:name="com.samp.mobile.game.SAMP"
             android:screenOrientation="landscape"
             android:theme="@style/Theme.AppCompat.NoActionBar"
