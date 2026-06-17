@@ -3,19 +3,39 @@ plugins {
     id 'com.google.gms.google-services'
 }
 
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     signingConfigs {
         debug {
-            storeFile file("../app/src/main/gssamp.jks")
-            storePassword "sniperride4v5.G4mer123456789"
-            keyAlias "gssamp4life"
-            keyPassword "sniperride4v5.G4mer123456789"
+            if (keystorePropertiesFile.exists()) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            } else if (System.getenv("KEYSTORE_BASE64") != null) {
+                storeFile file(System.getenv("KEYSTORE_FILE") ?: "../app/src/main/gssamp.jks")
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
         }
         release {
-            storeFile file("../app/src/main/gssamp.jks")
-            storePassword "sniperride4v5.G4mer123456789"
-            keyAlias "gssamp4life"
-            keyPassword "sniperride4v5.G4mer123456789"
+            if (keystorePropertiesFile.exists()) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            } else if (System.getenv("KEYSTORE_BASE64") != null) {
+                storeFile file(System.getenv("KEYSTORE_FILE") ?: "../app/src/main/gssamp.jks")
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
         }
     }
     compileSdk 34
