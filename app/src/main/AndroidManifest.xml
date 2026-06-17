@@ -22,6 +22,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
+        android:name="com.mehdigm.gssamp.GSSAMPApplication"
         android:gwpAsanMode="always"
         android:requestLegacyExternalStorage="true"
         android:banner="@mipmap/ic_launcher"

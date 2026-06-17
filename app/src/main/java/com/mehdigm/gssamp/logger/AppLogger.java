@@ -137,9 +137,7 @@ public class AppLogger {
             ProcessBuilder pb = new ProcessBuilder(
                     "logcat", "-v", "time",
                     "--pid=" + pid,
-                    "-f", logFilePath,
-                    "-r", "1024",
-                    "-n", "3"
+                    "-f", logFilePath
             );
             pb.redirectErrorStream(true);
             logcatProcess = pb.start();
@@ -180,20 +178,31 @@ public class AppLogger {
     }
 
     private static File getLogFile(Context context) {
+        // 1) Try external root (needs MANAGE_EXTERNAL_STORAGE)
         try {
             File base = new File(Environment.getExternalStorageDirectory(), FOLDER_NAME);
             if (base.exists() || base.mkdirs()) {
                 return new File(base, LOG_FILE_NAME);
             }
         } catch (Exception ignored) {}
+        // 2) Try app-specific external (no permissions needed on API 19+)
         File base = context.getExternalFilesDir(FOLDER_NAME);
-        if (base == null) {
-            base = new File(context.getFilesDir(), FOLDER_NAME);
+        if (base != null) {
+            if (base.exists() || base.mkdirs()) {
+                return new File(base, LOG_FILE_NAME);
+            }
         }
-        if (!base.exists()) {
-            base.mkdirs();
+        // 3) Internal storage (always works, no permissions)
+        base = new File(context.getFilesDir(), FOLDER_NAME);
+        if (base.exists() || base.mkdirs()) {
+            return new File(base, LOG_FILE_NAME);
         }
-        return new File(base, LOG_FILE_NAME);
+        // 4) Cache dir (absolute last resort)
+        base = new File(context.getCacheDir(), FOLDER_NAME);
+        if (base.exists() || base.mkdirs()) {
+            return new File(base, LOG_FILE_NAME);
+        }
+        return null;
     }
 
     private static void writeEntry(LogEntry entry) {
