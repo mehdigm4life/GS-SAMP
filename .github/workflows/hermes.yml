@@ -1,19 +1,26 @@
 name: 🧠 Hermes Agent Cloud (Web + API)
 
 # =============================================================================
-#  Hermes Agent — Cloud Runner on GitHub Actions  (FIXED v3 — Tunnel Hardened)
+#  Hermes Agent — Cloud Runner on GitHub Actions  (FIXED v4 — Tunnel Bulletproof)
 # =============================================================================
 #  المسار المطلوب: .github/workflows/hermes.yml
 #
-#  جديد في v3 — إصلاح تعليق نفق Cloudflare نهائياً:
-#    ✅ تجربة بروتوكولين تلقائياً (http2 ثم auto) بدل http2 فقط —
-#       ينهي التعليق عندما تفشل مفاوضة بروتوكول واحد صامتاً.
-#    ✅ فرض IPv4 على edge (--edge-ip-version 4) — يتفادى فشل IPv6 في runners.
-#    ✅ preflight check: لا نبدأ النفق إلا بعد أن يستمع المنفذ المحلي
-#       فعلاً — يمنع cloudflared من الانتظار الطويل.
-#    ✅ timeout-minutes رُفع إلى 8 (بدل 3) كشبكة أمان.
-#    ✅ تحقق الـedge أصبح اختيارياً 30ث فقط ولا يُفشل الخطوة بعد الآن.
-#    ✅ watchdog يجرّب البروتوكول البديل تلقائياً عند إعادة التشغيل.
+#  جديد في v4 — إصلاح نهائي وحاسم لمشكلة "Start Cloudflare Quick Tunnel"
+#  التي كانت تبقى loading بلا توقف حتى ينتهي timeout 8 دقائق:
+#    ✅ السبب الجذري كان: `setsid bash -c "..." &` ثم `echo "$!"` يُعيد PID
+#       للقشرة الوسيطة وليس cloudflared الحقيقي، فيلتبس تتبّع الحالة وتدخل
+#       الحلقة في حالة مرضية تستمر حتى timeout الخطوة بدلاً من الفشل بسرعة.
+#    ✅ الحل: استبدلنا الإطلاق بـ `nohup cloudflared ... > LOG 2>&1 &` ثم نلتقط
+#       PID مباشرة عبر `$!` — أبسط، أكثر موثوقية، ومتوافق مع كل runners.
+#    ✅ أضفنا حدّاً أعلى صارماً بالساعة الحائطية (wall-clock) ينهي الخطوة
+#       فوراً (≤ 180 ثانية إجمالاً) إن لم يصدر URL — لا تعليق بعد اليوم.
+#    ✅ نستخدم البروتوكول الافتراضي (auto/QUIC مع fallback إلى HTTP/2) في
+#       المحاولة الأولى — فهو الأكثر استقراراً على runners، ثم http2 احتياطياً.
+#    ✅ `stdbuf -oL -eL` لإجبار cloudflared على flush الـlogs فوراً فلا يتأخر
+#       استخراج الـURL بسبب buffering.
+#    ✅ Preflight check للمنفذ المحلي قبل بدء النفق (لا يبدأ بلا origin).
+#    ✅ تحقق edge اختياري سريع (≤ 20ث) لا يُفشل الخطوة.
+#    ✅ watchdog محدّث ليطابق نفس آلية الإطلاق المُصلَحة.
 #
 #  تم الحفاظ على إصلاحات v2:
 #    ✅ مشكلة Dashboard: تم حذف الـflag الخاطئ `--skip-build` وبناء واجهة الويب
@@ -645,9 +652,12 @@ jobs:
       # -----------------------------------------------------------------------
       - name: 🌐 Start Cloudflare Quick Tunnel
         id: tunnel
-        timeout-minutes: 8
+        timeout-minutes: 5
         run: |
-          set -euo pipefail
+          # ملاحظة: لا نستخدم `set -e` هنا حتى لا تخرج الخطوة بصمت في حال
+          # فشل أمر فرعي داخل حلقة الانتظار. نتعامل مع الأخطاء يدوياً.
+          set -uo pipefail
+
           mkdir -p "$RUNNER_TEMP/cloudflared-logs"
           TUN_LOG="$RUNNER_TEMP/cloudflared-logs/tunnel.log"
           : > "$TUN_LOG"
@@ -662,11 +672,13 @@ jobs:
 
           echo "Tunneling http://127.0.0.1:${TARGET_PORT}  ($TARGET_NAME)"
 
-          # نخزّن المنفذ لاستخدامه في الـ watchdog (إعادة تشغيل cloudflared)
+          # نخزّن المنفذ والاسم لاستخدامها في الـ watchdog لاحقاً
           echo "$TARGET_PORT" > "$RUNNER_TEMP/target_port"
           echo "$TARGET_NAME" > "$RUNNER_TEMP/target_name"
 
-          # ----- (1) Preflight: تأكد أن المنفذ المحلي يستمع فعلاً -----
+          # =====================================================================
+          # (1) Preflight — تأكد أن المنفذ المحلي يستمع فعلاً قبل بدء النفق
+          # =====================================================================
           echo "🔎 Preflight: التحقق من أن المنفذ المحلي ${TARGET_PORT} يستمع..."
           PRE_OK=0
           for i in $(seq 1 30); do
@@ -682,107 +694,162 @@ jobs:
             exit 1
           fi
 
-          # ----- (2) دالة بدء النفق مع اختيار بروتوكول قابل للتجاوز -----
-          # PROTO_MODE = http2 (الأسرع لكن قد يفشل) أو auto (يجرّب QUIC ثم HTTP2)
+          # =====================================================================
+          # (2) دالة إطلاق cloudflared — مبسّطة وموثوقة
+          # ---------------------------------------------------------------------
+          #  لماذا nohup بدل setsid:
+          #   - مع `setsid bash -c "..." &` كان `$!` يعيد PID لقشرة وسيطة قد
+          #     تختفي، فيظنّ السكربت أن cloudflared مات ويدخل حلقة إعادة تشغيل
+          #     مرضية تستهلك كل وقت الـtimeout بدون فشل.
+          #   - مع `nohup cloudflared ... &` يكون `$!` هو PID cloudflared ذاته
+          #     مباشرةً — تتبّع موثوق 100%.
+          #
+          #  لماذا stdbuf -oL -eL:
+          #   - يجبر cloudflared على flush الـlogs سطراً بسطر، فيظهر الـURL في
+          #     ملف السجل فوراً عند إصداره (بدون انتظار امتلاء buffer).
+          # =====================================================================
           start_tunnel() {
             local PROTO="$1"
             : > "$TUN_LOG"
-            # --edge-ip-version 4 ⇒ نتفادى مشاكل IPv6 على GH runners
-            # --no-tls-verify غير لازم؛ origin محلي HTTP بحت
-            # --metrics 127.0.0.1:0 ⇒ يتفادى صراع منافذ المقاييس
-            setsid bash -c "cloudflared tunnel \
+            nohup stdbuf -oL -eL cloudflared tunnel \
               --no-autoupdate \
               --edge-ip-version 4 \
-              --protocol ${PROTO} \
-              --retries 5 \
+              --protocol "$PROTO" \
+              --retries 3 \
               --metrics 127.0.0.1:0 \
               --loglevel info \
-              --url http://127.0.0.1:${TARGET_PORT} \
-              </dev/null >>'$TUN_LOG' 2>&1" &
-            echo "$!"
+              --url "http://127.0.0.1:${TARGET_PORT}" \
+              </dev/null >"$TUN_LOG" 2>&1 &
+            local PID=$!
+            disown "$PID" 2>/dev/null || true
+            echo "$PID"
           }
 
           extract_url() {
-            grep -Eo 'https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "$TUN_LOG" | head -n1
+            grep -Eo 'https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "$TUN_LOG" 2>/dev/null | head -n1
           }
 
-          # ----- (3) المحاولة الأولى: http2 -----
-          PROTO_USED="http2"
-          echo "🚀 محاولة 1/2 — البروتوكول: $PROTO_USED"
-          TUN_PID="$(start_tunnel "$PROTO_USED")"
-          disown || true
-          echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
-
-          PUBLIC_URL=""
-          for i in $(seq 1 45); do
-            U="$(extract_url || true)"
-            if [ -n "$U" ]; then PUBLIC_URL="$U"; break; fi
-            if ! kill -0 "$TUN_PID" 2>/dev/null; then
-              echo "⚠️ cloudflared (http2) خرج مبكراً — سننتقل للبروتوكول auto."
-              break
-            fi
-            sleep 1
-          done
-
-          # ----- (4) المحاولة الثانية: auto (تتضمن QUIC+HTTP2 fallback) -----
-          if [ -z "$PUBLIC_URL" ]; then
-            echo "⏬ المحاولة 1 لم تُصدر URL خلال 45ث — إيقاف وإعادة المحاولة بـ auto."
-            kill -TERM "$TUN_PID" 2>/dev/null || true
-            sleep 2
-            kill -KILL "$TUN_PID" 2>/dev/null || true
-            pkill -f "cloudflared tunnel" 2>/dev/null || true
-            sleep 1
-
-            PROTO_USED="auto"
-            echo "🚀 محاولة 2/2 — البروتوكول: $PROTO_USED"
-            TUN_PID="$(start_tunnel "$PROTO_USED")"
-            disown || true
-            echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
-
-            for i in $(seq 1 60); do
-              U="$(extract_url || true)"
-              if [ -n "$U" ]; then PUBLIC_URL="$U"; break; fi
-              if ! kill -0 "$TUN_PID" 2>/dev/null; then
-                echo "⚠️ cloudflared (auto) خرج مبكراً — سنُعيد تشغيله مرة واحدة."
-                TUN_PID="$(start_tunnel "$PROTO_USED")"
-                disown || true
-                echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
+          # دالة انتظار URL مع حدّ زمني صارم بالساعة الحائطية (wall-clock)
+          # ترجع 0 عند النجاح ووضع الـURL في PUBLIC_URL، وإلا ترجع 1
+          wait_for_url() {
+            local PID="$1"
+            local MAX_SEC="$2"
+            local LABEL="$3"
+            local START_TS NOW_TS U
+            START_TS=$(date +%s)
+            while :; do
+              NOW_TS=$(date +%s)
+              if [ $(( NOW_TS - START_TS )) -ge "$MAX_SEC" ]; then
+                echo "⏰ [$LABEL] انتهت مهلة ${MAX_SEC}ث بدون URL."
+                return 1
+              fi
+              U="$(extract_url)"
+              if [ -n "$U" ]; then
+                PUBLIC_URL="$U"
+                echo "🎯 [$LABEL] تم الحصول على URL بعد $(( NOW_TS - START_TS ))ث: $PUBLIC_URL"
+                return 0
+              fi
+              if ! kill -0 "$PID" 2>/dev/null; then
+                echo "⚠️ [$LABEL] عملية cloudflared خرجت مبكراً."
+                return 2
               fi
               sleep 1
             done
+          }
+
+          # دالة إيقاف نظيف لأي cloudflared قائم
+          kill_tunnel() {
+            local PID="${1:-}"
+            if [ -n "$PID" ]; then
+              kill -TERM "$PID" 2>/dev/null || true
+              sleep 1
+              kill -KILL "$PID" 2>/dev/null || true
+            fi
+            pkill -TERM -f "cloudflared tunnel" 2>/dev/null || true
+            sleep 1
+            pkill -KILL -f "cloudflared tunnel" 2>/dev/null || true
+          }
+
+          PUBLIC_URL=""
+          PROTO_USED=""
+
+          # =====================================================================
+          # (3) المحاولة 1 — البروتوكول الافتراضي (auto: QUIC مع fallback HTTP/2)
+          #     هذا هو الأكثر استقراراً على GitHub runners.
+          # =====================================================================
+          PROTO_USED="auto"
+          echo "🚀 محاولة 1/2 — البروتوكول: $PROTO_USED (مهلة 60ث)"
+          TUN_PID="$(start_tunnel "$PROTO_USED")"
+          echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
+          echo "   cloudflared PID = $TUN_PID"
+
+          wait_for_url "$TUN_PID" 60 "$PROTO_USED" || true
+
+          # =====================================================================
+          # (4) المحاولة 2 — http2 صريح (احتياطي عند فشل QUIC)
+          # =====================================================================
+          if [ -z "$PUBLIC_URL" ]; then
+            echo "⏬ المحاولة 1 لم تنجح — إيقاف وإعادة المحاولة بـ http2."
+            kill_tunnel "$TUN_PID"
+
+            PROTO_USED="http2"
+            echo "🚀 محاولة 2/2 — البروتوكول: $PROTO_USED (مهلة 60ث)"
+            TUN_PID="$(start_tunnel "$PROTO_USED")"
+            echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
+            echo "   cloudflared PID = $TUN_PID"
+
+            wait_for_url "$TUN_PID" 60 "$PROTO_USED" || true
           fi
 
+          # =====================================================================
+          # (5) فشل نهائي — اطبع السجلات وأخرج فوراً (لا تعليق)
+          # =====================================================================
           if [ -z "$PUBLIC_URL" ]; then
-            echo "❌ فشل الحصول على URL من Cloudflare بعد محاولتين. آخر سجل النفق:"
-            echo "--------------------------------------------------------------"
-            tail -n 200 "$TUN_LOG" || true
-            echo "--------------------------------------------------------------"
+            echo "❌ فشل الحصول على URL من Cloudflare بعد محاولتين."
+            echo "   ملاحظة: قد يكون هناك انقطاع مؤقت في خدمة trycloudflare.com."
+            echo "--------------------- آخر 200 سطر من سجل النفق ---------------------"
+            tail -n 200 "$TUN_LOG" 2>/dev/null || echo "(لا يوجد سجل)"
+            echo "---------------------------------------------------------------------"
+            kill_tunnel "${TUN_PID:-}"
             exit 1
           fi
 
-          echo "🎯 تم الحصول على URL: $PUBLIC_URL  (protocol=$PROTO_USED)"
+          echo "✅ النفق يعمل — URL: $PUBLIC_URL  (protocol=$PROTO_USED, PID=$TUN_PID)"
           echo "$PUBLIC_URL" > "$RUNNER_TEMP/current_url"
 
-          # ----- (5) تحقق edge اختياري (لا يُفشل الخطوة إذا تأخر) -----
-          echo "🔎 تحقق سريع من جاهزية edge (لن يُفشل الخطوة)..."
-          OK=0
-          for i in $(seq 1 15); do
-            CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 4 "$PUBLIC_URL/" || echo "000")
+          # =====================================================================
+          # (6) تحقق edge اختياري وسريع (≤ 20ث) — لا يُفشل الخطوة أبداً
+          # =====================================================================
+          echo "🔎 تحقق سريع من جاهزية edge (اختياري، لن يُفشل الخطوة)..."
+          EDGE_OK=0
+          EDGE_START=$(date +%s)
+          while [ $(( $(date +%s) - EDGE_START )) -lt 20 ]; do
+            CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 4 "$PUBLIC_URL/" 2>/dev/null || echo "000")
             case "$CODE" in
-              000|530|502|503|504|1033|521|522|523|525|526) : ;;
-              *) OK=1; echo "✅ Edge جاهز (HTTP $CODE) بعد ${i}ث"; break ;;
+              000|530|502|503|504|521|522|523|525|526)
+                sleep 2
+                ;;
+              *)
+                EDGE_OK=1
+                echo "✅ Edge جاهز (HTTP $CODE)"
+                break
+                ;;
             esac
-            sleep 2
           done
-          if [ "$OK" -ne 1 ]; then
-            echo "ℹ️ الـedge لم يثبت بعد، لكن الـURL صادر. الـwatchdog سيتابع."
+          if [ "$EDGE_OK" -ne 1 ]; then
+            echo "ℹ️ الـedge لم يثبت بعد ضمن 20ث، لكن الـURL صادر — الـwatchdog سيتابع."
           fi
 
-          echo "PUBLIC_URL=$PUBLIC_URL"     >> "$GITHUB_ENV"
-          echo "TARGET_NAME=$TARGET_NAME"   >> "$GITHUB_ENV"
-          echo "TARGET_PORT=$TARGET_PORT"   >> "$GITHUB_ENV"
-          echo "TUN_PROTO=$PROTO_USED"      >> "$GITHUB_ENV"
-          echo "public_url=$PUBLIC_URL"     >> "$GITHUB_OUTPUT"
+          # =====================================================================
+          # (7) تصدير المتغيرات للخطوات التالية
+          # =====================================================================
+          {
+            echo "PUBLIC_URL=$PUBLIC_URL"
+            echo "TARGET_NAME=$TARGET_NAME"
+            echo "TARGET_PORT=$TARGET_PORT"
+            echo "TUN_PROTO=$PROTO_USED"
+          } >> "$GITHUB_ENV"
+          echo "public_url=$PUBLIC_URL" >> "$GITHUB_OUTPUT"
 
           echo ""
           echo "╔════════════════════════════════════════════════════════════════════╗"
@@ -985,44 +1052,54 @@ jobs:
             echo "🔄 Restarting cloudflared tunnel..."
             local LOG="$RUNNER_TEMP/cloudflared-logs/tunnel.log"
             local PROTO="${TUN_PROTO:-auto}"
+            local TP="${TARGET_PORT:-8088}"
             : > "$LOG"
-            # نستخدم نفس الإعدادات القوية من الخطوة 11
-            setsid bash -c "cloudflared tunnel \
+            # نستخدم نفس آلية الإطلاق المُصلَحة من الخطوة 11 (nohup + stdbuf)
+            nohup stdbuf -oL -eL cloudflared tunnel \
               --no-autoupdate \
               --edge-ip-version 4 \
-              --protocol ${PROTO} \
-              --retries 5 \
+              --protocol "$PROTO" \
+              --retries 3 \
               --metrics 127.0.0.1:0 \
               --loglevel info \
-              --url http://127.0.0.1:${TARGET_PORT} \
-              </dev/null >>'$LOG' 2>&1" &
+              --url "http://127.0.0.1:${TP}" \
+              </dev/null >"$LOG" 2>&1 &
             local PID=$!
-            disown || true
+            disown "$PID" 2>/dev/null || true
             echo "$PID" > "$RUNNER_TEMP/cloudflared.pid"
+
             local NEW_URL=""
-            for i in $(seq 1 90); do
-              NEW_URL="$(grep -Eo 'https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "$LOG" | head -n1 || true)"
+            local START_TS NOW_TS
+            START_TS=$(date +%s)
+            local SWITCHED=0
+            # حدّ زمني صارم 90 ثانية بالساعة الحائطية
+            while :; do
+              NOW_TS=$(date +%s)
+              [ $(( NOW_TS - START_TS )) -ge 90 ] && break
+              NEW_URL="$(grep -Eo 'https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "$LOG" 2>/dev/null | head -n1 || true)"
               [ -n "$NEW_URL" ] && break
-              # لو مات قبل ما يطلع URL — جرّب البروتوكول البديل
-              if ! kill -0 "$PID" 2>/dev/null; then
+              # لو مات قبل ما يطلع URL — جرّب البروتوكول البديل مرة واحدة فقط
+              if ! kill -0 "$PID" 2>/dev/null && [ "$SWITCHED" -eq 0 ]; then
+                SWITCHED=1
                 if [ "$PROTO" = "http2" ]; then PROTO="auto"; else PROTO="http2"; fi
                 echo "↪️ إعادة المحاولة بالبروتوكول البديل: $PROTO"
                 : > "$LOG"
-                setsid bash -c "cloudflared tunnel \
+                nohup stdbuf -oL -eL cloudflared tunnel \
                   --no-autoupdate \
                   --edge-ip-version 4 \
-                  --protocol ${PROTO} \
-                  --retries 5 \
+                  --protocol "$PROTO" \
+                  --retries 3 \
                   --metrics 127.0.0.1:0 \
                   --loglevel info \
-                  --url http://127.0.0.1:${TARGET_PORT} \
-                  </dev/null >>'$LOG' 2>&1" &
+                  --url "http://127.0.0.1:${TP}" \
+                  </dev/null >"$LOG" 2>&1 &
                 PID=$!
-                disown || true
+                disown "$PID" 2>/dev/null || true
                 echo "$PID" > "$RUNNER_TEMP/cloudflared.pid"
               fi
               sleep 1
             done
+
             if [ -n "$NEW_URL" ]; then
               echo "✅ cloudflared back up. New URL: $NEW_URL (proto=$PROTO)"
               # ملاحظة: URL يتغير بعد إعادة التشغيل (quick tunnel)
