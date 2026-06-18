@@ -1,11 +1,21 @@
 name: 🧠 Hermes Agent Cloud (Web + API)
 
 # =============================================================================
-#  Hermes Agent — Cloud Runner on GitHub Actions  (FIXED v2)
+#  Hermes Agent — Cloud Runner on GitHub Actions  (FIXED v3 — Tunnel Hardened)
 # =============================================================================
 #  المسار المطلوب: .github/workflows/hermes.yml
 #
-#  ما الذي تم إصلاحه في هذه النسخة؟
+#  جديد في v3 — إصلاح تعليق نفق Cloudflare نهائياً:
+#    ✅ تجربة بروتوكولين تلقائياً (http2 ثم auto) بدل http2 فقط —
+#       ينهي التعليق عندما تفشل مفاوضة بروتوكول واحد صامتاً.
+#    ✅ فرض IPv4 على edge (--edge-ip-version 4) — يتفادى فشل IPv6 في runners.
+#    ✅ preflight check: لا نبدأ النفق إلا بعد أن يستمع المنفذ المحلي
+#       فعلاً — يمنع cloudflared من الانتظار الطويل.
+#    ✅ timeout-minutes رُفع إلى 8 (بدل 3) كشبكة أمان.
+#    ✅ تحقق الـedge أصبح اختيارياً 30ث فقط ولا يُفشل الخطوة بعد الآن.
+#    ✅ watchdog يجرّب البروتوكول البديل تلقائياً عند إعادة التشغيل.
+#
+#  تم الحفاظ على إصلاحات v2:
 #    ✅ مشكلة Dashboard: تم حذف الـflag الخاطئ `--skip-build` وبناء واجهة الويب
 #       تلقائياً (`npm install --workspace web && npm run build -w web`) قبل
 #       تشغيل الـ dashboard، فلا يظهر بعد اليوم خطأ:
@@ -619,11 +629,23 @@ jobs:
           done
 
       # -----------------------------------------------------------------------
-      # 11) Cloudflare Quick Tunnel
+      # 11) Cloudflare Quick Tunnel  (FIXED — لا يعلق بعد الآن)
+      # -----------------------------------------------------------------------
+      #  أسباب التعليق السابق وما تم إصلاحه:
+      #   1) كان يستخدم `--protocol http2` فقط، وهذا يعلّق صامتاً عندما تفشل
+      #      مفاوضة QUIC/HTTP2 على بعض runners. الآن: نجرّب http2 ثم نسقط
+      #      تلقائياً إلى البروتوكول الافتراضي عند الفشل.
+      #   2) كان يفتقد `--edge-ip-version 4` فتُستخدم IPv6 أحياناً وهي محجوبة
+      #      على runners → تعليق نهائي.
+      #   3) الانتظار 90ث + التحقق 30×2ث = 150ث، مع overhead يتجاوز timeout=3min.
+      #      الآن: timeout=8min، انتظار URL مُقسّم على محاولتين بحدّ أقصى
+      #      45ث للأولى + 45ث للثانية، والتحقق من الـedge اختياري ولا يُفشل.
+      #   4) لم يكن يتحقق من أن الـorigin (المنفذ المحلي) يستمع فعلاً قبل
+      #      تشغيل النفق → cloudflared ينتظر طويلاً. الآن: preflight check.
       # -----------------------------------------------------------------------
       - name: 🌐 Start Cloudflare Quick Tunnel
         id: tunnel
-        timeout-minutes: 3
+        timeout-minutes: 8
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/cloudflared-logs"
@@ -644,55 +666,122 @@ jobs:
           echo "$TARGET_PORT" > "$RUNNER_TEMP/target_port"
           echo "$TARGET_NAME" > "$RUNNER_TEMP/target_name"
 
+          # ----- (1) Preflight: تأكد أن المنفذ المحلي يستمع فعلاً -----
+          echo "🔎 Preflight: التحقق من أن المنفذ المحلي ${TARGET_PORT} يستمع..."
+          PRE_OK=0
+          for i in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/${TARGET_PORT}) >/dev/null 2>&1; then
+              PRE_OK=1
+              echo "✅ Origin :${TARGET_PORT} مستمع (بعد ${i}ث)"
+              break
+            fi
+            sleep 1
+          done
+          if [ "$PRE_OK" -ne 1 ]; then
+            echo "❌ المنفذ ${TARGET_PORT} ليس مستمعاً — لا فائدة من بدء النفق."
+            exit 1
+          fi
+
+          # ----- (2) دالة بدء النفق مع اختيار بروتوكول قابل للتجاوز -----
+          # PROTO_MODE = http2 (الأسرع لكن قد يفشل) أو auto (يجرّب QUIC ثم HTTP2)
           start_tunnel() {
+            local PROTO="$1"
             : > "$TUN_LOG"
-            # --protocol http2 + retries أكثر استقراراً من الافتراضي
-            setsid bash -c "cloudflared tunnel --no-autoupdate --protocol http2 --retries 10 --url http://127.0.0.1:${TARGET_PORT} </dev/null >>'$TUN_LOG' 2>&1" &
+            # --edge-ip-version 4 ⇒ نتفادى مشاكل IPv6 على GH runners
+            # --no-tls-verify غير لازم؛ origin محلي HTTP بحت
+            # --metrics 127.0.0.1:0 ⇒ يتفادى صراع منافذ المقاييس
+            setsid bash -c "cloudflared tunnel \
+              --no-autoupdate \
+              --edge-ip-version 4 \
+              --protocol ${PROTO} \
+              --retries 5 \
+              --metrics 127.0.0.1:0 \
+              --loglevel info \
+              --url http://127.0.0.1:${TARGET_PORT} \
+              </dev/null >>'$TUN_LOG' 2>&1" &
             echo "$!"
           }
 
-          TUN_PID="$(start_tunnel)"
+          extract_url() {
+            grep -Eo 'https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "$TUN_LOG" | head -n1
+          }
+
+          # ----- (3) المحاولة الأولى: http2 -----
+          PROTO_USED="http2"
+          echo "🚀 محاولة 1/2 — البروتوكول: $PROTO_USED"
+          TUN_PID="$(start_tunnel "$PROTO_USED")"
           disown || true
           echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
 
           PUBLIC_URL=""
-          for i in $(seq 1 90); do
-            if grep -Eo 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' "$TUN_LOG" | head -n1 > /tmp/url.txt 2>/dev/null; then
-              PUBLIC_URL=$(cat /tmp/url.txt || true)
-              [ -n "$PUBLIC_URL" ] && break
-            fi
+          for i in $(seq 1 45); do
+            U="$(extract_url || true)"
+            if [ -n "$U" ]; then PUBLIC_URL="$U"; break; fi
             if ! kill -0 "$TUN_PID" 2>/dev/null; then
-              echo "⚠️ cloudflared exited, restarting..."
-              TUN_PID="$(start_tunnel)"
-              disown || true
-              echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
+              echo "⚠️ cloudflared (http2) خرج مبكراً — سننتقل للبروتوكول auto."
+              break
             fi
             sleep 1
           done
 
+          # ----- (4) المحاولة الثانية: auto (تتضمن QUIC+HTTP2 fallback) -----
           if [ -z "$PUBLIC_URL" ]; then
-            echo "❌ Failed to get tunnel URL in 90s. Tunnel log:"
-            cat "$TUN_LOG"; exit 1
+            echo "⏬ المحاولة 1 لم تُصدر URL خلال 45ث — إيقاف وإعادة المحاولة بـ auto."
+            kill -TERM "$TUN_PID" 2>/dev/null || true
+            sleep 2
+            kill -KILL "$TUN_PID" 2>/dev/null || true
+            pkill -f "cloudflared tunnel" 2>/dev/null || true
+            sleep 1
+
+            PROTO_USED="auto"
+            echo "🚀 محاولة 2/2 — البروتوكول: $PROTO_USED"
+            TUN_PID="$(start_tunnel "$PROTO_USED")"
+            disown || true
+            echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
+
+            for i in $(seq 1 60); do
+              U="$(extract_url || true)"
+              if [ -n "$U" ]; then PUBLIC_URL="$U"; break; fi
+              if ! kill -0 "$TUN_PID" 2>/dev/null; then
+                echo "⚠️ cloudflared (auto) خرج مبكراً — سنُعيد تشغيله مرة واحدة."
+                TUN_PID="$(start_tunnel "$PROTO_USED")"
+                disown || true
+                echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
+              fi
+              sleep 1
+            done
           fi
 
-          # تحقق نهائي: نتأكد أن الـ edge فعلاً تستقبل (ليست 1033)
+          if [ -z "$PUBLIC_URL" ]; then
+            echo "❌ فشل الحصول على URL من Cloudflare بعد محاولتين. آخر سجل النفق:"
+            echo "--------------------------------------------------------------"
+            tail -n 200 "$TUN_LOG" || true
+            echo "--------------------------------------------------------------"
+            exit 1
+          fi
+
+          echo "🎯 تم الحصول على URL: $PUBLIC_URL  (protocol=$PROTO_USED)"
+          echo "$PUBLIC_URL" > "$RUNNER_TEMP/current_url"
+
+          # ----- (5) تحقق edge اختياري (لا يُفشل الخطوة إذا تأخر) -----
+          echo "🔎 تحقق سريع من جاهزية edge (لن يُفشل الخطوة)..."
           OK=0
-          for i in $(seq 1 30); do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$PUBLIC_URL/" || echo "000")
-            if [ "$CODE" != "000" ] && [ "$CODE" != "530" ] && [ "$CODE" != "502" ] && [ "$CODE" != "1033" ]; then
-              OK=1
-              echo "✅ Edge reachable (HTTP $CODE) after ${i}s"
-              break
-            fi
+          for i in $(seq 1 15); do
+            CODE=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 4 "$PUBLIC_URL/" || echo "000")
+            case "$CODE" in
+              000|530|502|503|504|1033|521|522|523|525|526) : ;;
+              *) OK=1; echo "✅ Edge جاهز (HTTP $CODE) بعد ${i}ث"; break ;;
+            esac
             sleep 2
           done
           if [ "$OK" -ne 1 ]; then
-            echo "⚠️ Edge not fully ready yet, but URL was issued. Watchdog will retry."
+            echo "ℹ️ الـedge لم يثبت بعد، لكن الـURL صادر. الـwatchdog سيتابع."
           fi
 
           echo "PUBLIC_URL=$PUBLIC_URL"     >> "$GITHUB_ENV"
           echo "TARGET_NAME=$TARGET_NAME"   >> "$GITHUB_ENV"
           echo "TARGET_PORT=$TARGET_PORT"   >> "$GITHUB_ENV"
+          echo "TUN_PROTO=$PROTO_USED"      >> "$GITHUB_ENV"
           echo "public_url=$PUBLIC_URL"     >> "$GITHUB_OUTPUT"
 
           echo ""
@@ -701,6 +790,7 @@ jobs:
           echo "╠════════════════════════════════════════════════════════════════════╣"
           printf  "║  URL:      %-55s ║\n" "$PUBLIC_URL"
           printf  "║  Service:  %-55s ║\n" "$TARGET_NAME"
+          printf  "║  Protocol: %-55s ║\n" "$PROTO_USED"
           printf  "║  Provider: %-55s ║\n" "${{ github.event.inputs.provider }}"
           printf  "║  Model:    %-55s ║\n" "${{ github.event.inputs.model }}"
           echo "╚════════════════════════════════════════════════════════════════════╝"
@@ -894,22 +984,51 @@ jobs:
           restart_cloudflared() {
             echo "🔄 Restarting cloudflared tunnel..."
             local LOG="$RUNNER_TEMP/cloudflared-logs/tunnel.log"
+            local PROTO="${TUN_PROTO:-auto}"
             : > "$LOG"
-            setsid bash -c "cloudflared tunnel --no-autoupdate --protocol http2 --retries 10 --url http://127.0.0.1:${TARGET_PORT} </dev/null >>'$LOG' 2>&1" &
+            # نستخدم نفس الإعدادات القوية من الخطوة 11
+            setsid bash -c "cloudflared tunnel \
+              --no-autoupdate \
+              --edge-ip-version 4 \
+              --protocol ${PROTO} \
+              --retries 5 \
+              --metrics 127.0.0.1:0 \
+              --loglevel info \
+              --url http://127.0.0.1:${TARGET_PORT} \
+              </dev/null >>'$LOG' 2>&1" &
             local PID=$!
             disown || true
             echo "$PID" > "$RUNNER_TEMP/cloudflared.pid"
             local NEW_URL=""
-            for i in $(seq 1 60); do
-              NEW_URL="$(grep -Eo 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' "$LOG" | head -n1 || true)"
+            for i in $(seq 1 90); do
+              NEW_URL="$(grep -Eo 'https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com' "$LOG" | head -n1 || true)"
               [ -n "$NEW_URL" ] && break
+              # لو مات قبل ما يطلع URL — جرّب البروتوكول البديل
+              if ! kill -0 "$PID" 2>/dev/null; then
+                if [ "$PROTO" = "http2" ]; then PROTO="auto"; else PROTO="http2"; fi
+                echo "↪️ إعادة المحاولة بالبروتوكول البديل: $PROTO"
+                : > "$LOG"
+                setsid bash -c "cloudflared tunnel \
+                  --no-autoupdate \
+                  --edge-ip-version 4 \
+                  --protocol ${PROTO} \
+                  --retries 5 \
+                  --metrics 127.0.0.1:0 \
+                  --loglevel info \
+                  --url http://127.0.0.1:${TARGET_PORT} \
+                  </dev/null >>'$LOG' 2>&1" &
+                PID=$!
+                disown || true
+                echo "$PID" > "$RUNNER_TEMP/cloudflared.pid"
+              fi
               sleep 1
             done
             if [ -n "$NEW_URL" ]; then
-              echo "✅ cloudflared back up. New URL: $NEW_URL"
+              echo "✅ cloudflared back up. New URL: $NEW_URL (proto=$PROTO)"
               # ملاحظة: URL يتغير بعد إعادة التشغيل (quick tunnel)
               echo "::warning::Cloudflare tunnel restarted. New public URL: $NEW_URL"
               echo "$NEW_URL" > "$RUNNER_TEMP/current_url"
+              export TUN_PROTO="$PROTO"
               return 0
             fi
             echo "⚠️ cloudflared did not return a URL after restart"
