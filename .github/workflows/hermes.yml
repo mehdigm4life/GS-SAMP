@@ -1,0 +1,757 @@
+name: 🧠 Hermes Agent Cloud (Web + API)
+
+# =============================================================================
+#  Hermes Agent — Cloud Runner on GitHub Actions
+# =============================================================================
+#  المسار المطلوب: .github/workflows/hermes.yml
+#
+#  ماذا يفعل هذا الـ workflow؟
+#    1) يثبّت Hermes Agent (Nous Research) كاملاً على Ubuntu runner.
+#    2) (اختيارياً) يثبّت Ollama ويحمّل نموذجاً محلياً (افتراضي: gemma3:1b).
+#    3) يضبط Hermes بشكل غير تفاعلي عبر ملفي:
+#          ~/.hermes/.env         (المفاتيح والإعدادات السرية)
+#          ~/.hermes/config.yaml  (المزود + النموذج)
+#    4) يشغّل `hermes gateway` في الخلفية → API Server (OpenAI-compatible)
+#       على المنفذ 8642.
+#    5) يشغّل `hermes dashboard` في الخلفية → Web UI على المنفذ 9119
+#       (تستطيع إدارة الإعدادات/المفاتيح/الجلسات من المتصفح).
+#    6) يفتح Cloudflare Quick Tunnel ويطبع رابطاً عاماً
+#       (https://*.trycloudflare.com) للوصول من أي مكان.
+#    7) (اختيارياً) يعمل auto-commit + push لأي تعديلات على ملفات الـ repo.
+#    8) يبقى السيرفر حياً للمدة التي تختارها (حد GitHub Actions = 350 دقيقة).
+#
+#  كيف تشغّله؟
+#    - ضع هذا الملف في `.github/workflows/hermes.yml` داخل أي repo.
+#    - افتح تبويب **Actions** → اختر **🧠 Hermes Agent Cloud (Web + API)**.
+#    - اضغط **Run workflow** ثم اختر المزود/النموذج/المدة.
+#    - بعد ~3 دقائق سيظهر الرابط العام في الـ Job Summary.
+#
+#  المزودات المدعومة عبر هذا الـ workflow:
+#    - `ollama`        : محلي على نفس الـ runner (مجاناً، يحمّل نموذج مفتوح)
+#    - `openrouter`    : يتطلب OPENROUTER_API_KEY في secrets
+#    - `anthropic`     : يتطلب ANTHROPIC_API_KEY
+#    - `openai`        : يتطلب OPENAI_API_KEY
+#    - `gemini`        : يتطلب GEMINI_API_KEY
+#    - `groq`          : يتطلب GROQ_API_KEY
+#    - `deepseek`      : يتطلب DEEPSEEK_API_KEY
+#    - `xai`           : يتطلب XAI_API_KEY
+#    - `nous-portal`   : يتطلب NOUS_API_KEY
+#
+#  مراجع رسمية:
+#    https://hermes-agent.nousresearch.com/docs/
+#    https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server
+#    https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard
+#    https://docs.ollama.com/integrations/hermes
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "مزود النموذج"
+        required: true
+        default: "ollama"
+        type: choice
+        options:
+          - ollama
+          - openrouter
+          - anthropic
+          - openai
+          - gemini
+          - groq
+          - deepseek
+          - xai
+          - nous-portal
+      model:
+        description: "اسم النموذج (مثال محلي: gemma3:1b | gemma3:4b | qwen3:4b | llama3.2:3b — مثال سحابي: anthropic/claude-sonnet-4 | openrouter/openai/gpt-4o-mini)"
+        required: true
+        default: "gemma3:1b"
+        type: string
+      duration_minutes:
+        description: "مدة بقاء السيرفر شغّالاً بالدقائق (حد GitHub Actions ≈ 350 دقيقة)"
+        required: true
+        default: "330"
+        type: string
+      auto_commit:
+        description: "commit + push تلقائي لأي تعديلات يعملها Hermes على الـ repo"
+        required: true
+        default: true
+        type: boolean
+      commit_interval_seconds:
+        description: "كل كم ثانية يتم فحص التغييرات وعمل commit"
+        required: true
+        default: "60"
+        type: string
+      expose_dashboard:
+        description: "افتح Web Dashboard للعموم بدل API فقط (انتبه: لا توجد مصادقة افتراضية)"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  # نمنع تشغيل أكثر من جلسة بنفس الوقت على نفس الفرع
+  group: hermes-agent-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  hermes-cloud:
+    name: 🚀 Run Hermes Agent + Tunnel
+    runs-on: ubuntu-latest
+    timeout-minutes: 355   # الحد الأقصى لـ job في GitHub Actions = 360 دقيقة
+
+    env:
+      # ===================== مفاتيح المزودات (كلها اختيارية) ===================
+      # يمكنك إضافتها من Settings → Secrets and variables → Actions
+      OPENROUTER_API_KEY:  ${{ secrets.OPENROUTER_API_KEY }}
+      ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY:      ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY:      ${{ secrets.GEMINI_API_KEY }}
+      GOOGLE_API_KEY:      ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY:        ${{ secrets.GROQ_API_KEY }}
+      DEEPSEEK_API_KEY:    ${{ secrets.DEEPSEEK_API_KEY }}
+      XAI_API_KEY:         ${{ secrets.XAI_API_KEY }}
+      MISTRAL_API_KEY:     ${{ secrets.MISTRAL_API_KEY }}
+      COHERE_API_KEY:      ${{ secrets.COHERE_API_KEY }}
+      TOGETHER_API_KEY:    ${{ secrets.TOGETHER_API_KEY }}
+      PERPLEXITY_API_KEY:  ${{ secrets.PERPLEXITY_API_KEY }}
+      HF_TOKEN:            ${{ secrets.HF_TOKEN }}
+      NOUS_API_KEY:        ${{ secrets.NOUS_API_KEY }}
+
+      # ===================== إعدادات Hermes الأساسية ===========================
+      HERMES_HOME: /home/runner/.hermes
+      # لا تشغّل أي wizard تفاعلي أبداً
+      HERMES_NON_INTERACTIVE: "1"
+      HERMES_YES: "1"
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1) جلب كود الـ repository الحالي
+      # -----------------------------------------------------------------------
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------------------------------------------
+      # 2) أدوات النظام الأساسية
+      # -----------------------------------------------------------------------
+      - name: 🛠️ Install system dependencies
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            curl wget unzip jq git ca-certificates procps \
+            ripgrep ffmpeg \
+            python3 python3-venv python3-pip
+
+      # -----------------------------------------------------------------------
+      # 3) تثبيت Python 3.11 (مطلوب لـ Hermes) إن لم يكن متوفراً
+      # -----------------------------------------------------------------------
+      - name: 🐍 Ensure Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # -----------------------------------------------------------------------
+      # 4) تثبيت Node.js (يحتاجه Hermes لبعض الأدوات)
+      # -----------------------------------------------------------------------
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # -----------------------------------------------------------------------
+      # 5) (اختياري) تثبيت Ollama إذا اختار المستخدم provider=ollama
+      # -----------------------------------------------------------------------
+      - name: 🐑 Install Ollama
+        if: ${{ github.event.inputs.provider == 'ollama' }}
+        uses: ai-action/setup-ollama@v2
+
+      - name: 🐑 Start Ollama daemon + pull model
+        if: ${{ github.event.inputs.provider == 'ollama' }}
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          MODEL="${{ github.event.inputs.model }}"
+
+          # ابدأ Ollama في الخلفية بـ setsid حتى لا يُعلّق الـ step
+          mkdir -p "$RUNNER_TEMP/ollama-logs"
+          OLLAMA_LOG="$RUNNER_TEMP/ollama-logs/ollama.log"
+          : > "$OLLAMA_LOG"
+
+          setsid bash -c "ollama serve </dev/null >>'$OLLAMA_LOG' 2>&1" &
+          OLLAMA_PID=$!
+          disown || true
+          echo "$OLLAMA_PID" > "$RUNNER_TEMP/ollama.pid"
+
+          # انتظر حتى يستجيب
+          UP=0
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+              UP=1
+              echo "✅ Ollama is up (PID=$OLLAMA_PID) after ${i}s"
+              break
+            fi
+            if ! kill -0 "$OLLAMA_PID" 2>/dev/null; then
+              echo "❌ Ollama died prematurely:"
+              cat "$OLLAMA_LOG" || true
+              exit 1
+            fi
+            sleep 1
+          done
+          [ "$UP" -eq 1 ] || { echo "❌ Ollama did not start in 60s"; cat "$OLLAMA_LOG"; exit 1; }
+
+          echo "📥 Pulling model: $MODEL"
+          ollama pull "$MODEL"
+
+          echo ""
+          echo "📋 Installed models:"
+          ollama list
+
+      # -----------------------------------------------------------------------
+      # 6) تثبيت Hermes Agent (المثبّت الرسمي، غير تفاعلي)
+      # -----------------------------------------------------------------------
+      - name: 🧠 Install Hermes Agent
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          export HERMES_HOME="$HOME/.hermes"
+
+          echo "::group::Installing Hermes Agent via official installer"
+          # --skip-setup  : لا تشغّل setup wizard التفاعلي
+          # --non-interactive : تخطّ أي خطوة تحتاج input
+          # --skip-browser : لا تثبّت Playwright/Chromium (نوفر وقت + مساحة)
+          curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
+            | bash -s -- --skip-setup --non-interactive --skip-browser
+          echo "::endgroup::"
+
+          # المسارات الافتراضية للمثبّت الرسمي
+          # ينشئ ~/.hermes/hermes-agent/ ويربط ~/.hermes/bin/hermes
+          for p in "$HOME/.hermes/bin" "$HOME/.local/bin" "/usr/local/bin"; do
+            if [ -d "$p" ]; then
+              echo "$p" >> "$GITHUB_PATH"
+              export PATH="$p:$PATH"
+            fi
+          done
+
+          # تحقق
+          which hermes || { echo "❌ hermes binary not found on PATH"; ls -la "$HOME/.hermes" || true; exit 1; }
+          hermes --version || true
+
+      # -----------------------------------------------------------------------
+      # 7) تثبيت cloudflared (للنفق العام)
+      # -----------------------------------------------------------------------
+      - name: ☁️ Install cloudflared
+        uses: AnimMouse/setup-cloudflared@v2
+
+      - name: ✅ Verify cloudflared
+        run: cloudflared --version
+
+      # -----------------------------------------------------------------------
+      # 8) كتابة إعدادات Hermes بشكل غير تفاعلي
+      # -----------------------------------------------------------------------
+      - name: 📝 Configure Hermes (non-interactive)
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.hermes/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+
+          HERMES_DIR="$HOME/.hermes"
+          mkdir -p "$HERMES_DIR"
+
+          PROVIDER="${{ github.event.inputs.provider }}"
+          MODEL="${{ github.event.inputs.model }}"
+          API_KEY="hermes-$(openssl rand -hex 16)"
+
+          # ----------- 8.1) كتابة ملف الـ .env (الأسرار) -----------
+          cat > "$HERMES_DIR/.env" <<EOF
+          # === Hermes API Server (مطلوب لتشغيل gateway في Cloud) ===
+          API_SERVER_ENABLED=true
+          API_SERVER_KEY=${API_KEY}
+          API_SERVER_HOST=0.0.0.0
+          API_SERVER_PORT=8642
+
+          # === Gateway: نسمح للوصول العام (مطلوب لأن لا توجد allowlist في CI) ===
+          GATEWAY_ALLOW_ALL_USERS=true
+
+          # === مفاتيح المزودات (نملأ فقط ما هو متوفر من secrets) ===
+          EOF
+
+          # أضف فقط المفاتيح الموجودة فعلياً
+          add_env_if_set() {
+            local name="$1"
+            local val="$2"
+            if [ -n "$val" ]; then
+              echo "${name}=${val}" >> "$HERMES_DIR/.env"
+            fi
+          }
+          add_env_if_set OPENROUTER_API_KEY "${OPENROUTER_API_KEY:-}"
+          add_env_if_set ANTHROPIC_API_KEY  "${ANTHROPIC_API_KEY:-}"
+          add_env_if_set OPENAI_API_KEY     "${OPENAI_API_KEY:-}"
+          add_env_if_set GEMINI_API_KEY     "${GEMINI_API_KEY:-}"
+          add_env_if_set GOOGLE_API_KEY     "${GOOGLE_API_KEY:-}"
+          add_env_if_set GROQ_API_KEY       "${GROQ_API_KEY:-}"
+          add_env_if_set DEEPSEEK_API_KEY   "${DEEPSEEK_API_KEY:-}"
+          add_env_if_set XAI_API_KEY        "${XAI_API_KEY:-}"
+          add_env_if_set MISTRAL_API_KEY    "${MISTRAL_API_KEY:-}"
+          add_env_if_set HF_TOKEN           "${HF_TOKEN:-}"
+          add_env_if_set NOUS_API_KEY       "${NOUS_API_KEY:-}"
+
+          chmod 600 "$HERMES_DIR/.env"
+
+          # نحفظ المفتاح ليصل لباقي الـ steps
+          echo "HERMES_API_KEY=${API_KEY}" >> "$GITHUB_ENV"
+
+          # ----------- 8.2) كتابة config.yaml حسب المزود -----------
+          # ⚠️ هام: Hermes يستخدم بنية `model:` كقاموس متداخل
+          #   model.default   → اسم النموذج
+          #   model.provider  → المزود ("custom" لـ Ollama و local OpenAI-compatible)
+          #   model.base_url  → نقطة النهاية
+          # المفاتيح في .env هي مصدر authoritative للـ API keys.
+
+          # دالة مشتركة تكتب config.yaml لمزود معيّن
+          write_cloud_config() {
+            local prov="$1"
+            local base="$2"
+            cat > "$HERMES_DIR/config.yaml" <<YAML
+          # Hermes Agent — auto-generated by GitHub Actions
+          model:
+            default: "${MODEL}"
+            provider: "${prov}"
+          $( [ -n "$base" ] && echo "  base_url: \"$base\"" )
+
+          autoshare: false
+          autoupdate: false
+
+          terminal:
+            backend: "local"
+            cwd: "."
+            timeout: 180
+
+          # نتجاوز أي onboarding hints حتى لا يطبع رسائل تنبيه
+          onboarding:
+            seen:
+              busy_input_prompt: true
+
+          display:
+            tool_progress: "new"
+            show_cost: false
+            timestamps: false
+          YAML
+          }
+
+          case "$PROVIDER" in
+            ollama)
+              # Ollama عبر OpenAI-compatible endpoint — Hermes يسمّيه "custom"
+              write_cloud_config "custom" "http://127.0.0.1:11434/v1"
+              ;;
+            openrouter)
+              write_cloud_config "openrouter" ""
+              ;;
+            anthropic)
+              write_cloud_config "anthropic" ""
+              ;;
+            openai)
+              write_cloud_config "openai-codex" ""
+              ;;
+            gemini)
+              write_cloud_config "gemini" ""
+              ;;
+            groq)
+              # Groq عبر OpenAI-compatible endpoint
+              write_cloud_config "custom" "https://api.groq.com/openai/v1"
+              # نضيف GROQ_API_KEY كـ OPENAI_API_KEY حتى يستخدمه الـ custom provider
+              if [ -n "${GROQ_API_KEY:-}" ]; then
+                echo "OPENAI_API_KEY=${GROQ_API_KEY}" >> "$HERMES_DIR/.env"
+              fi
+              ;;
+            deepseek)
+              write_cloud_config "custom" "https://api.deepseek.com/v1"
+              if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+                echo "OPENAI_API_KEY=${DEEPSEEK_API_KEY}" >> "$HERMES_DIR/.env"
+              fi
+              ;;
+            xai)
+              write_cloud_config "custom" "https://api.x.ai/v1"
+              if [ -n "${XAI_API_KEY:-}" ]; then
+                echo "OPENAI_API_KEY=${XAI_API_KEY}" >> "$HERMES_DIR/.env"
+              fi
+              ;;
+            nous-portal)
+              write_cloud_config "nous-api" ""
+              ;;
+            *)
+              echo "❌ Unknown provider: $PROVIDER"
+              exit 1
+              ;;
+          esac
+
+          echo "✅ Wrote $HERMES_DIR/config.yaml"
+          echo "----- config.yaml -----"
+          cat "$HERMES_DIR/config.yaml"
+          echo ""
+          echo "----- .env (keys redacted) -----"
+          sed -E 's/(KEY|TOKEN)=.*/\1=***redacted***/g' "$HERMES_DIR/.env"
+
+      # -----------------------------------------------------------------------
+      # 9) تشغيل Hermes Gateway (API Server) في الخلفية — الإصلاح الجوهري
+      # -----------------------------------------------------------------------
+      - name: 🚀 Start Hermes Gateway (API server, background)
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.hermes/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+          export HERMES_HOME="$HOME/.hermes"
+
+          mkdir -p "$RUNNER_TEMP/hermes-logs"
+          GW_LOG="$RUNNER_TEMP/hermes-logs/gateway.log"
+          : > "$GW_LOG"
+
+          echo "Starting hermes gateway ..."
+          # ⭐⭐ نفس نمط الفصل الآمن من السكريبت الأصلي:
+          # setsid     : process group مستقل
+          # </dev/null : لا stdin
+          # >>log 2>&1 : لا pipe للـ runner
+          # &          : خلفية
+          # disown     : إزالة من jobs
+          setsid bash -c "hermes gateway </dev/null >>'$GW_LOG' 2>&1" &
+          GW_PID=$!
+          disown || true
+          echo "$GW_PID" > "$RUNNER_TEMP/hermes.pid"
+          echo "Hermes gateway PID = $GW_PID"
+
+          # ننتظر حتى يستجيب API على :8642
+          UP=0
+          for i in $(seq 1 180); do
+            # /health هو endpoint الصحة الرسمي
+            if curl -fsS --max-time 2 http://127.0.0.1:8642/health >/dev/null 2>&1; then
+              UP=1
+              echo "✅ /health responded after ${i}s"
+              break
+            fi
+            # fallback: TCP فقط
+            if (echo > /dev/tcp/127.0.0.1/8642) >/dev/null 2>&1; then
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 http://127.0.0.1:8642/ || echo "000")
+              if [ "$CODE" != "000" ]; then
+                UP=1
+                echo "✅ Hermes API listening on :8642 (HTTP $CODE) after ${i}s"
+                break
+              fi
+            fi
+            if ! kill -0 "$GW_PID" 2>/dev/null; then
+              echo "❌ hermes gateway exited prematurely. Last log lines:"
+              tail -n 200 "$GW_LOG" || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ "$UP" -ne 1 ]; then
+            echo "❌ hermes gateway did not become reachable in 180s. Logs:"
+            tail -n 300 "$GW_LOG" || true
+            kill -TERM "$GW_PID" 2>/dev/null || true
+            exit 1
+          fi
+
+          echo ""
+          echo "----- last 20 lines of gateway log -----"
+          tail -n 20 "$GW_LOG" || true
+
+      # -----------------------------------------------------------------------
+      # 10) (اختياري) تشغيل Hermes Dashboard (Web UI) في الخلفية
+      # -----------------------------------------------------------------------
+      - name: 🖥️ Start Hermes Dashboard (web UI, background)
+        if: ${{ github.event.inputs.expose_dashboard == 'true' }}
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.hermes/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+          export HERMES_HOME="$HOME/.hermes"
+
+          DASH_LOG="$RUNNER_TEMP/hermes-logs/dashboard.log"
+          : > "$DASH_LOG"
+
+          # نشغّل الـ dashboard على 0.0.0.0:9119 — يسمح للنفق بالوصول
+          # --no-open    : لا تحاول فتح متصفح (headless)
+          # --skip-build : استخدم dist موجود (npm قد لا يكون متوفراً)
+          # --insecure   : السماح بـ bind على 0.0.0.0 (مطلوب للنفق)
+          setsid bash -c "hermes dashboard --host 0.0.0.0 --port 9119 --no-open --skip-build --insecure </dev/null >>'$DASH_LOG' 2>&1" &
+          DASH_PID=$!
+          disown || true
+          echo "$DASH_PID" > "$RUNNER_TEMP/hermes-dashboard.pid"
+
+          UP=0
+          for i in $(seq 1 90); do
+            if (echo > /dev/tcp/127.0.0.1/9119) >/dev/null 2>&1; then
+              UP=1
+              echo "✅ Dashboard listening on :9119 after ${i}s"
+              break
+            fi
+            if ! kill -0 "$DASH_PID" 2>/dev/null; then
+              echo "⚠️ hermes dashboard exited. Log:"
+              tail -n 100 "$DASH_LOG" || true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$UP" -ne 1 ]; then
+            echo "⚠️ Dashboard not ready in 90s, continuing without it."
+          fi
+
+      # -----------------------------------------------------------------------
+      # 11) فتح Cloudflare Quick Tunnel على الـ API (أو الـ Dashboard)
+      # -----------------------------------------------------------------------
+      - name: 🌐 Start Cloudflare Quick Tunnel
+        id: tunnel
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cloudflared-logs"
+          TUN_LOG="$RUNNER_TEMP/cloudflared-logs/tunnel.log"
+          : > "$TUN_LOG"
+
+          if [ "${{ github.event.inputs.expose_dashboard }}" = "true" ]; then
+            TARGET_PORT=9119
+            TARGET_NAME="Dashboard (Web UI)"
+          else
+            TARGET_PORT=8642
+            TARGET_NAME="API Server (OpenAI-compatible)"
+          fi
+
+          echo "Tunneling http://127.0.0.1:${TARGET_PORT}  ($TARGET_NAME)"
+
+          setsid bash -c "cloudflared tunnel --no-autoupdate --url http://127.0.0.1:${TARGET_PORT} </dev/null >>'$TUN_LOG' 2>&1" &
+          TUN_PID=$!
+          disown || true
+          echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
+
+          PUBLIC_URL=""
+          for i in $(seq 1 90); do
+            if grep -Eo 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' "$TUN_LOG" | head -n1 > /tmp/url.txt 2>/dev/null; then
+              PUBLIC_URL=$(cat /tmp/url.txt || true)
+              [ -n "$PUBLIC_URL" ] && break
+            fi
+            if ! kill -0 "$TUN_PID" 2>/dev/null; then
+              echo "❌ cloudflared exited prematurely:"
+              cat "$TUN_LOG"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ -z "$PUBLIC_URL" ]; then
+            echo "❌ Failed to get tunnel URL in 90s. Tunnel log:"
+            cat "$TUN_LOG"
+            exit 1
+          fi
+
+          echo "PUBLIC_URL=$PUBLIC_URL"          >> "$GITHUB_ENV"
+          echo "TARGET_NAME=$TARGET_NAME"        >> "$GITHUB_ENV"
+          echo "TARGET_PORT=$TARGET_PORT"        >> "$GITHUB_ENV"
+          echo "public_url=$PUBLIC_URL"          >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "╔════════════════════════════════════════════════════════════════════╗"
+          echo "║              🧠 Hermes Agent is LIVE on the Web 🧠                ║"
+          echo "╠════════════════════════════════════════════════════════════════════╣"
+          printf  "║  URL:      %-55s ║\n" "$PUBLIC_URL"
+          printf  "║  Service:  %-55s ║\n" "$TARGET_NAME"
+          printf  "║  Provider: %-55s ║\n" "${{ github.event.inputs.provider }}"
+          printf  "║  Model:    %-55s ║\n" "${{ github.event.inputs.model }}"
+          echo "╚════════════════════════════════════════════════════════════════════╝"
+          echo ""
+
+      # -----------------------------------------------------------------------
+      # 12) كتابة الرابط ومعلومات الاستخدام في Job Summary
+      # -----------------------------------------------------------------------
+      - name: 📌 Publish URL to Job Summary
+        run: |
+          PROVIDER="${{ github.event.inputs.provider }}"
+          MODEL="${{ github.event.inputs.model }}"
+          EXPOSE_DASH="${{ github.event.inputs.expose_dashboard }}"
+
+          {
+            echo "# 🧠 Hermes Agent — Live Cloud Session"
+            echo ""
+            echo "## 🌐 الرابط العام"
+            echo ""
+            echo "### 👉 [${PUBLIC_URL}](${PUBLIC_URL})"
+            echo ""
+            echo "**النوع:** ${TARGET_NAME}"
+            echo ""
+            if [ "$EXPOSE_DASH" = "true" ]; then
+              echo "افتح الرابط مباشرة من المتصفح للوصول إلى Web Dashboard."
+              echo ""
+              echo "> ⚠️ **تنبيه أمني**: الـ Dashboard مفتوح بدون مصادقة. لا تضع مفاتيح API حساسة فيه ولا تترك الجلسة طويلاً بدون مراقبة."
+            else
+              echo "هذا API متوافق مع OpenAI. استخدمه من أي تطبيق يدعم OpenAI API:"
+              echo ""
+              echo '```text'
+              echo "Base URL : ${PUBLIC_URL}/v1"
+              echo "API Key  : (راجع \$HERMES_API_KEY في step logs أو في secrets/.env)"
+              echo "Model    : hermes-agent"
+              echo '```'
+              echo ""
+              echo "### مثال curl سريع:"
+              echo '```bash'
+              echo "curl ${PUBLIC_URL}/v1/chat/completions \\"
+              echo "  -H \"Authorization: Bearer \$HERMES_API_KEY\" \\"
+              echo "  -H \"Content-Type: application/json\" \\"
+              echo "  -d '{\"model\":\"hermes-agent\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}]}'"
+              echo '```'
+              echo ""
+              echo "### استخدام مع Open WebUI / LobeChat / LibreChat:"
+              echo "- **Base URL**: \`${PUBLIC_URL}/v1\`"
+              echo "- **API Key**: المفتاح في \`HERMES_API_KEY\`"
+            fi
+            echo ""
+            echo "## ⚙️ تفاصيل الجلسة"
+            echo ""
+            echo "| الحقل | القيمة |"
+            echo "|------|--------|"
+            echo "| **Repository** | \`${GITHUB_REPOSITORY}\` |"
+            echo "| **Branch** | \`${GITHUB_REF_NAME}\` |"
+            echo "| **Provider** | \`${PROVIDER}\` |"
+            echo "| **Model** | \`${MODEL}\` |"
+            echo "| **مدة التشغيل** | ${{ github.event.inputs.duration_minutes }} دقيقة |"
+            echo "| **Auto commit** | ${{ github.event.inputs.auto_commit }} |"
+            echo "| **Health endpoint** | \`${PUBLIC_URL}/health\` |"
+            echo ""
+            echo "## ✏️ التعديلات التلقائية"
+            if [ "${{ github.event.inputs.auto_commit }}" = "true" ]; then
+              echo "أي تعديل يقوم به Hermes على الملفات سيتم رفعه تلقائياً إلى branch \`${GITHUB_REF_NAME}\` كل ${{ github.event.inputs.commit_interval_seconds }} ثانية."
+            else
+              echo "auto-commit معطّل في هذه الجلسة."
+            fi
+            echo ""
+            echo "## 🛑 إيقاف الجلسة"
+            echo "اضغط **Cancel workflow** في صفحة الـ Actions، أو انتظر انتهاء المدة."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo ""
+          echo "════════════════ HERMES_API_KEY ════════════════"
+          echo "${HERMES_API_KEY}"
+          echo "════════════════════════════════════════════════"
+
+      # -----------------------------------------------------------------------
+      # 13) (اختياري) Auto-commit loop في الخلفية
+      # -----------------------------------------------------------------------
+      - name: 🔁 Start auto-commit loop (background)
+        if: ${{ github.event.inputs.auto_commit == 'true' }}
+        timeout-minutes: 1
+        run: |
+          set -euo pipefail
+          git config --global user.email "hermes-bot@users.noreply.github.com"
+          git config --global user.name  "hermes-bot"
+
+          INTERVAL="${{ github.event.inputs.commit_interval_seconds }}"
+          BRANCH="${GITHUB_REF_NAME}"
+          LOG="$RUNNER_TEMP/autocommit.log"
+          : > "$LOG"
+
+          cat > "$RUNNER_TEMP/autocommit.sh" <<EOF
+          #!/usr/bin/env bash
+          cd "$GITHUB_WORKSPACE"
+          while true; do
+            sleep $INTERVAL
+            if [ -n "\$(git status --porcelain)" ]; then
+              git add -A
+              MSG="🧠 hermes: auto-commit \$(date -u +'%Y-%m-%d %H:%M:%SZ')"
+              git commit -m "\$MSG" >> "$LOG" 2>&1 || true
+              git push origin "$BRANCH" >> "$LOG" 2>&1 || true
+              echo "[\$(date -u)] pushed: \$MSG" >> "$LOG"
+            fi
+          done
+          EOF
+          chmod +x "$RUNNER_TEMP/autocommit.sh"
+
+          setsid bash -c "bash '$RUNNER_TEMP/autocommit.sh' </dev/null >>'$LOG' 2>&1" &
+          AC_PID=$!
+          disown || true
+          echo "$AC_PID" > "$RUNNER_TEMP/autocommit.pid"
+          echo "✅ Auto-commit loop started (PID=$AC_PID, every ${INTERVAL}s) on branch ${BRANCH}"
+
+      # -----------------------------------------------------------------------
+      # 14) إبقاء الـ job حياً مع heartbeat ومراقبة العمليات
+      # -----------------------------------------------------------------------
+      - name: ⏳ Keep session alive
+        run: |
+          DURATION_MIN="${{ github.event.inputs.duration_minutes }}"
+          DURATION_SEC=$(( DURATION_MIN * 60 ))
+          echo "Session will run for ${DURATION_MIN} minutes (${DURATION_SEC}s)."
+          echo "Public URL: ${PUBLIC_URL}"
+          echo ""
+
+          ELAPSED=0
+          STEP=300   # 5 دقائق بين كل heartbeat
+          while [ "$ELAPSED" -lt "$DURATION_SEC" ]; do
+            sleep "$STEP"
+            ELAPSED=$(( ELAPSED + STEP ))
+            REMAIN_MIN=$(( (DURATION_SEC - ELAPSED) / 60 ))
+            echo "⏱️ Heartbeat — elapsed=$((ELAPSED/60))min  remaining=${REMAIN_MIN}min"
+            echo "🌐 ${PUBLIC_URL}"
+
+            # تحقق من حياة العمليات المهمة
+            if [ -f "$RUNNER_TEMP/hermes.pid" ] && ! kill -0 "$(cat $RUNNER_TEMP/hermes.pid)" 2>/dev/null; then
+              echo "⚠️ hermes gateway process died — exiting."
+              exit 1
+            fi
+            if [ -f "$RUNNER_TEMP/cloudflared.pid" ] && ! kill -0 "$(cat $RUNNER_TEMP/cloudflared.pid)" 2>/dev/null; then
+              echo "⚠️ cloudflared died — exiting."
+              exit 1
+            fi
+            if [ -f "$RUNNER_TEMP/ollama.pid" ] && ! kill -0 "$(cat $RUNNER_TEMP/ollama.pid)" 2>/dev/null; then
+              echo "⚠️ ollama died — exiting."
+              exit 1
+            fi
+          done
+
+          echo "✅ Session duration reached. Shutting down gracefully."
+
+      # -----------------------------------------------------------------------
+      # 15) commit أخير قبل الخروج
+      # -----------------------------------------------------------------------
+      - name: 💾 Final commit & push
+        if: ${{ always() && github.event.inputs.auto_commit == 'true' }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git config --global user.email "hermes-bot@users.noreply.github.com"
+          git config --global user.name  "hermes-bot"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "🧠 hermes: final auto-commit $(date -u +'%Y-%m-%d %H:%M:%SZ')" || true
+            git push origin "${GITHUB_REF_NAME}" || true
+          else
+            echo "No pending changes to commit."
+          fi
+
+      # -----------------------------------------------------------------------
+      # 16) عرض اللوجات (debug)
+      # -----------------------------------------------------------------------
+      - name: 📜 Show logs (debug)
+        if: ${{ always() }}
+        run: |
+          echo "===== hermes gateway log (tail 120) ====="
+          tail -n 120 "$RUNNER_TEMP/hermes-logs/gateway.log" 2>/dev/null || echo "(no gateway log)"
+          echo ""
+          echo "===== hermes dashboard log (tail 60) ====="
+          tail -n 60  "$RUNNER_TEMP/hermes-logs/dashboard.log" 2>/dev/null || echo "(no dashboard log)"
+          echo ""
+          echo "===== ollama log (tail 60) ====="
+          tail -n 60  "$RUNNER_TEMP/ollama-logs/ollama.log" 2>/dev/null || echo "(ollama not used)"
+          echo ""
+          echo "===== cloudflared tunnel log (tail 60) ====="
+          tail -n 60  "$RUNNER_TEMP/cloudflared-logs/tunnel.log" 2>/dev/null || echo "(no tunnel log)"
+          echo ""
+          echo "===== autocommit log (tail 60) ====="
+          tail -n 60  "$RUNNER_TEMP/autocommit.log" 2>/dev/null || echo "(autocommit not enabled)"
+
+      # -----------------------------------------------------------------------
+      # 17) إغلاق نظيف
+      # -----------------------------------------------------------------------
+      - name: 🧹 Shutdown cloudflared
+        if: ${{ always() }}
+        uses: AnimMouse/setup-cloudflared/shutdown@v2
