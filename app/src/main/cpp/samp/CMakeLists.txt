@@ -33,6 +33,7 @@ file(GLOB_RECURSE SOURCES
 # Add include directories
 include_directories(
         ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/gui/
         ${CMAKE_CURRENT_LIST_DIR}/util/
         ${CMAKE_CURRENT_LIST_DIR}/vendor/armhook
         ${CMAKE_CURRENT_LIST_DIR}/vendor/imgui
