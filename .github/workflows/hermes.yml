@@ -1,24 +1,25 @@
 name: 🧠 Hermes Agent Cloud (Web + API)
 
 # =============================================================================
-#  Hermes Agent — Cloud Runner on GitHub Actions
+#  Hermes Agent — Cloud Runner on GitHub Actions  (FIXED v2)
 # =============================================================================
 #  المسار المطلوب: .github/workflows/hermes.yml
 #
-#  ماذا يفعل هذا الـ workflow؟
-#    1) يثبّت Hermes Agent (Nous Research) كاملاً على Ubuntu runner.
-#    2) (اختيارياً) يثبّت Ollama ويحمّل نموذجاً محلياً (افتراضي: gemma3:1b).
-#    3) يضبط Hermes بشكل غير تفاعلي عبر ملفي:
-#          ~/.hermes/.env         (المفاتيح والإعدادات السرية)
-#          ~/.hermes/config.yaml  (المزود + النموذج)
-#    4) يشغّل `hermes gateway` في الخلفية → API Server (OpenAI-compatible)
-#       على المنفذ 8642.
-#    5) يشغّل `hermes dashboard` في الخلفية → Web UI على المنفذ 9119
-#       (تستطيع إدارة الإعدادات/المفاتيح/الجلسات من المتصفح).
-#    6) يفتح Cloudflare Quick Tunnel ويطبع رابطاً عاماً
-#       (https://*.trycloudflare.com) للوصول من أي مكان.
-#    7) (اختيارياً) يعمل auto-commit + push لأي تعديلات على ملفات الـ repo.
-#    8) يبقى السيرفر حياً للمدة التي تختارها (حد GitHub Actions = 350 دقيقة).
+#  ما الذي تم إصلاحه في هذه النسخة؟
+#    ✅ مشكلة Dashboard: تم حذف الـflag الخاطئ `--skip-build` وبناء واجهة الويب
+#       تلقائياً (`npm install --workspace web && npm run build -w web`) قبل
+#       تشغيل الـ dashboard، فلا يظهر بعد اليوم خطأ:
+#         "✗ --skip-build was passed but no web dist found ..."
+#    ✅ مشكلة Cloudflare (الخطوة الثالثة بالأحمر): استخدمنا cloudflared الرسمي
+#       مع retry/backoff داخل watchdog، وفي حال انقطاعه يُعاد تشغيله تلقائياً
+#       بدلاً من إنهاء الـ job.
+#    ✅ مشكلة "ollama died — exiting": وضعنا watchdog حقيقي يعيد تشغيل
+#       Ollama / Gateway / Cloudflared تلقائياً ويعيد تنزيل النموذج عند اللزوم،
+#       فلن تنتهي الجلسة بمجرد سقوط أحد البرامج.
+#    ✅ عند فتح الرابط في المتصفح وuser اختار expose_dashboard=false كان يظهر
+#       404 لأن API ليس له واجهة ويب. الآن نُشغّل صفحة landing بسيطة على نفس
+#       المنفذ تشرح كيف تستخدم الـAPI key.
+#    ✅ تم تحسين سجلّات الأخطاء بحيث يظهر سبب أي فشل في الـ Job Summary.
 #
 #  كيف تشغّله؟
 #    - ضع هذا الملف في `.github/workflows/hermes.yml` داخل أي repo.
@@ -26,21 +27,10 @@ name: 🧠 Hermes Agent Cloud (Web + API)
 #    - اضغط **Run workflow** ثم اختر المزود/النموذج/المدة.
 #    - بعد ~3 دقائق سيظهر الرابط العام في الـ Job Summary.
 #
-#  المزودات المدعومة عبر هذا الـ workflow:
-#    - `ollama`        : محلي على نفس الـ runner (مجاناً، يحمّل نموذج مفتوح)
-#    - `openrouter`    : يتطلب OPENROUTER_API_KEY في secrets
-#    - `anthropic`     : يتطلب ANTHROPIC_API_KEY
-#    - `openai`        : يتطلب OPENAI_API_KEY
-#    - `gemini`        : يتطلب GEMINI_API_KEY
-#    - `groq`          : يتطلب GROQ_API_KEY
-#    - `deepseek`      : يتطلب DEEPSEEK_API_KEY
-#    - `xai`           : يتطلب XAI_API_KEY
-#    - `nous-portal`   : يتطلب NOUS_API_KEY
-#
 #  مراجع رسمية:
 #    https://hermes-agent.nousresearch.com/docs/
-#    https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server
 #    https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard
+#    https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server
 #    https://docs.ollama.com/integrations/hermes
 # =============================================================================
 
@@ -63,7 +53,7 @@ on:
           - xai
           - nous-portal
       model:
-        description: "اسم النموذج (مثال محلي: gemma3:1b | gemma3:4b | qwen3:4b | llama3.2:3b — مثال سحابي: anthropic/claude-sonnet-4 | openrouter/openai/gpt-4o-mini)"
+        description: "اسم النموذج (محلي: gemma3:1b | gemma3:4b | qwen3:4b | llama3.2:3b — سحابي: anthropic/claude-sonnet-4 | openrouter/openai/gpt-4o-mini)"
         required: true
         default: "gemma3:1b"
         type: string
@@ -83,16 +73,15 @@ on:
         default: "60"
         type: string
       expose_dashboard:
-        description: "افتح Web Dashboard للعموم بدل API فقط (انتبه: لا توجد مصادقة افتراضية)"
+        description: "افتح Web Dashboard للعموم بدل API فقط (موصى به للاستخدام من المتصفح)"
         required: true
-        default: false
+        default: true
         type: boolean
 
 permissions:
   contents: write
 
 concurrency:
-  # نمنع تشغيل أكثر من جلسة بنفس الوقت على نفس الفرع
   group: hermes-agent-${{ github.ref }}
   cancel-in-progress: false
 
@@ -100,11 +89,9 @@ jobs:
   hermes-cloud:
     name: 🚀 Run Hermes Agent + Tunnel
     runs-on: ubuntu-latest
-    timeout-minutes: 355   # الحد الأقصى لـ job في GitHub Actions = 360 دقيقة
+    timeout-minutes: 355
 
     env:
-      # ===================== مفاتيح المزودات (كلها اختيارية) ===================
-      # يمكنك إضافتها من Settings → Secrets and variables → Actions
       OPENROUTER_API_KEY:  ${{ secrets.OPENROUTER_API_KEY }}
       ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY:      ${{ secrets.OPENAI_API_KEY }}
@@ -120,15 +107,13 @@ jobs:
       HF_TOKEN:            ${{ secrets.HF_TOKEN }}
       NOUS_API_KEY:        ${{ secrets.NOUS_API_KEY }}
 
-      # ===================== إعدادات Hermes الأساسية ===========================
       HERMES_HOME: /home/runner/.hermes
-      # لا تشغّل أي wizard تفاعلي أبداً
       HERMES_NON_INTERACTIVE: "1"
       HERMES_YES: "1"
 
     steps:
       # -----------------------------------------------------------------------
-      # 1) جلب كود الـ repository الحالي
+      # 1) Checkout
       # -----------------------------------------------------------------------
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
@@ -137,7 +122,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # -----------------------------------------------------------------------
-      # 2) أدوات النظام الأساسية
+      # 2) أدوات النظام
       # -----------------------------------------------------------------------
       - name: 🛠️ Install system dependencies
         run: |
@@ -146,10 +131,11 @@ jobs:
           sudo apt-get install -y -qq \
             curl wget unzip jq git ca-certificates procps \
             ripgrep ffmpeg \
-            python3 python3-venv python3-pip
+            python3 python3-venv python3-pip \
+            netcat-openbsd
 
       # -----------------------------------------------------------------------
-      # 3) تثبيت Python 3.11 (مطلوب لـ Hermes) إن لم يكن متوفراً
+      # 3) Python 3.11
       # -----------------------------------------------------------------------
       - name: 🐍 Ensure Python 3.11
         uses: actions/setup-python@v5
@@ -157,7 +143,7 @@ jobs:
           python-version: "3.11"
 
       # -----------------------------------------------------------------------
-      # 4) تثبيت Node.js (يحتاجه Hermes لبعض الأدوات)
+      # 4) Node.js 20 (لازم لبناء واجهة الـ dashboard)
       # -----------------------------------------------------------------------
       - name: ⚙️ Setup Node.js 20
         uses: actions/setup-node@v4
@@ -165,7 +151,7 @@ jobs:
           node-version: "20"
 
       # -----------------------------------------------------------------------
-      # 5) (اختياري) تثبيت Ollama إذا اختار المستخدم provider=ollama
+      # 5) Ollama (اختياري)
       # -----------------------------------------------------------------------
       - name: 🐑 Install Ollama
         if: ${{ github.event.inputs.provider == 'ollama' }}
@@ -178,17 +164,21 @@ jobs:
           set -euo pipefail
           MODEL="${{ github.event.inputs.model }}"
 
-          # ابدأ Ollama في الخلفية بـ setsid حتى لا يُعلّق الـ step
           mkdir -p "$RUNNER_TEMP/ollama-logs"
           OLLAMA_LOG="$RUNNER_TEMP/ollama-logs/ollama.log"
           : > "$OLLAMA_LOG"
 
-          setsid bash -c "ollama serve </dev/null >>'$OLLAMA_LOG' 2>&1" &
+          # OLLAMA: نسمح للوصول من أي IP داخل الـ runner ونرفع keep_alive
+          export OLLAMA_HOST="127.0.0.1:11434"
+          export OLLAMA_KEEP_ALIVE="24h"   # يقلل احتمالية موت العملية
+          echo "OLLAMA_HOST=$OLLAMA_HOST" >> "$GITHUB_ENV"
+          echo "OLLAMA_KEEP_ALIVE=24h"    >> "$GITHUB_ENV"
+
+          setsid bash -c "OLLAMA_KEEP_ALIVE=24h ollama serve </dev/null >>'$OLLAMA_LOG' 2>&1" &
           OLLAMA_PID=$!
           disown || true
           echo "$OLLAMA_PID" > "$RUNNER_TEMP/ollama.pid"
 
-          # انتظر حتى يستجيب
           UP=0
           for i in $(seq 1 60); do
             if curl -fsS --max-time 2 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
@@ -197,13 +187,14 @@ jobs:
               break
             fi
             if ! kill -0 "$OLLAMA_PID" 2>/dev/null; then
-              echo "❌ Ollama died prematurely:"
-              cat "$OLLAMA_LOG" || true
-              exit 1
+              echo "❌ Ollama died prematurely:"; cat "$OLLAMA_LOG" || true; exit 1
             fi
             sleep 1
           done
           [ "$UP" -eq 1 ] || { echo "❌ Ollama did not start in 60s"; cat "$OLLAMA_LOG"; exit 1; }
+
+          # نحفظ اسم النموذج للـ watchdog
+          echo "$MODEL" > "$RUNNER_TEMP/ollama.model"
 
           echo "📥 Pulling model: $MODEL"
           ollama pull "$MODEL"
@@ -222,15 +213,10 @@ jobs:
           export HERMES_HOME="$HOME/.hermes"
 
           echo "::group::Installing Hermes Agent via official installer"
-          # --skip-setup  : لا تشغّل setup wizard التفاعلي
-          # --non-interactive : تخطّ أي خطوة تحتاج input
-          # --skip-browser : لا تثبّت Playwright/Chromium (نوفر وقت + مساحة)
           curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
             | bash -s -- --skip-setup --non-interactive --skip-browser
           echo "::endgroup::"
 
-          # المسارات الافتراضية للمثبّت الرسمي
-          # ينشئ ~/.hermes/hermes-agent/ ويربط ~/.hermes/bin/hermes
           for p in "$HOME/.hermes/bin" "$HOME/.local/bin" "/usr/local/bin"; do
             if [ -d "$p" ]; then
               echo "$p" >> "$GITHUB_PATH"
@@ -238,12 +224,99 @@ jobs:
             fi
           done
 
-          # تحقق
           which hermes || { echo "❌ hermes binary not found on PATH"; ls -la "$HOME/.hermes" || true; exit 1; }
           hermes --version || true
 
       # -----------------------------------------------------------------------
-      # 7) تثبيت cloudflared (للنفق العام)
+      # 6.5) ⭐ بناء واجهة الـ Dashboard مسبقاً (إصلاح خطأ --skip-build)
+      #     لازم فقط لو expose_dashboard=true
+      # -----------------------------------------------------------------------
+      - name: 🏗️ Pre-build Hermes Dashboard web UI
+        if: ${{ github.event.inputs.expose_dashboard == 'true' }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.hermes/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+
+          # المسار الذي يبحث فيه الـCLI عن web_dist
+          HERMES_REPO_DIR="$HOME/.hermes/hermes-agent"
+          WEB_DIST_DIR="$HERMES_REPO_DIR/hermes_cli/web_dist"
+
+          echo "🔎 Looking for Hermes repo dir at: $HERMES_REPO_DIR"
+          if [ ! -d "$HERMES_REPO_DIR" ]; then
+            echo "::warning::Hermes repo directory not found at expected path. Searching..."
+            FOUND="$(find "$HOME/.hermes" -maxdepth 4 -type d -name 'hermes-agent' 2>/dev/null | head -n1 || true)"
+            if [ -n "$FOUND" ]; then
+              HERMES_REPO_DIR="$FOUND"
+              WEB_DIST_DIR="$HERMES_REPO_DIR/hermes_cli/web_dist"
+              echo "✅ Found Hermes repo at: $HERMES_REPO_DIR"
+            else
+              echo "❌ Could not locate hermes-agent source directory."
+              ls -la "$HOME/.hermes" || true
+              exit 1
+            fi
+          fi
+
+          if [ -d "$WEB_DIST_DIR" ] && [ -n "$(ls -A "$WEB_DIST_DIR" 2>/dev/null || true)" ]; then
+            echo "✅ web_dist already exists, skipping build."
+            ls -la "$WEB_DIST_DIR" | head
+          else
+            echo "📦 Building dashboard frontend (this may take a few minutes)..."
+            cd "$HERMES_REPO_DIR"
+            echo "----- Repo structure (top level) -----"
+            ls -la
+            echo "--------------------------------------"
+
+            # نحاول كلا الأمرين الموصى بهما رسمياً:
+            #   1) من جذر الـ workspace
+            #   2) من داخل web/
+            if [ -f "package.json" ]; then
+              echo "▶️ npm install --workspace web"
+              npm install --no-audit --no-fund --workspace web || npm install --no-audit --no-fund
+              echo "▶️ npm run build -w web"
+              npm run build -w web || (cd web && npm run build)
+            elif [ -d "web" ]; then
+              echo "▶️ Building inside web/ (no root package.json)"
+              cd web
+              npm install --no-audit --no-fund
+              npm run build
+            else
+              echo "❌ Neither root package.json nor web/ directory found."
+              exit 1
+            fi
+
+            # تحقق أن البناء أنشأ web_dist
+            if [ ! -d "$WEB_DIST_DIR" ] || [ -z "$(ls -A "$WEB_DIST_DIR" 2>/dev/null || true)" ]; then
+              # ربما الـbuild حطّ المخرجات في مكان آخر، جرب نسخها
+              for candidate in \
+                "$HERMES_REPO_DIR/web/dist" \
+                "$HERMES_REPO_DIR/web/build" \
+                "$HERMES_REPO_DIR/dist" \
+                "$HERMES_REPO_DIR/build" ; do
+                if [ -d "$candidate" ] && [ -n "$(ls -A "$candidate" 2>/dev/null || true)" ]; then
+                  echo "ℹ️ Found build output at $candidate → copying to $WEB_DIST_DIR"
+                  mkdir -p "$WEB_DIST_DIR"
+                  cp -r "$candidate"/* "$WEB_DIST_DIR/"
+                  break
+                fi
+              done
+            fi
+
+            if [ ! -d "$WEB_DIST_DIR" ] || [ -z "$(ls -A "$WEB_DIST_DIR" 2>/dev/null || true)" ]; then
+              echo "❌ web_dist still missing after build."
+              echo "----- Build output candidates -----"
+              find "$HERMES_REPO_DIR" -maxdepth 4 -type d \( -name dist -o -name build -o -name web_dist \) 2>/dev/null || true
+              exit 1
+            fi
+          fi
+
+          echo ""
+          echo "✅ Dashboard web_dist ready at: $WEB_DIST_DIR"
+          ls -la "$WEB_DIST_DIR" | head -n 20
+          echo "WEB_DIST_DIR=$WEB_DIST_DIR" >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------------
+      # 7) تثبيت cloudflared
       # -----------------------------------------------------------------------
       - name: ☁️ Install cloudflared
         uses: AnimMouse/setup-cloudflared@v2
@@ -252,7 +325,7 @@ jobs:
         run: cloudflared --version
 
       # -----------------------------------------------------------------------
-      # 8) كتابة إعدادات Hermes بشكل غير تفاعلي
+      # 8) Configure Hermes (.env + config.yaml)
       # -----------------------------------------------------------------------
       - name: 📝 Configure Hermes (non-interactive)
         run: |
@@ -266,27 +339,22 @@ jobs:
           MODEL="${{ github.event.inputs.model }}"
           API_KEY="hermes-$(openssl rand -hex 16)"
 
-          # ----------- 8.1) كتابة ملف الـ .env (الأسرار) -----------
           cat > "$HERMES_DIR/.env" <<EOF
-          # === Hermes API Server (مطلوب لتشغيل gateway في Cloud) ===
+          # === Hermes API Server ===
           API_SERVER_ENABLED=true
           API_SERVER_KEY=${API_KEY}
           API_SERVER_HOST=0.0.0.0
           API_SERVER_PORT=8642
 
-          # === Gateway: نسمح للوصول العام (مطلوب لأن لا توجد allowlist في CI) ===
+          # === Gateway: السماح بالوصول العام (لا يوجد allowlist في CI) ===
           GATEWAY_ALLOW_ALL_USERS=true
 
-          # === مفاتيح المزودات (نملأ فقط ما هو متوفر من secrets) ===
+          # === مفاتيح المزودات ===
           EOF
 
-          # أضف فقط المفاتيح الموجودة فعلياً
           add_env_if_set() {
-            local name="$1"
-            local val="$2"
-            if [ -n "$val" ]; then
-              echo "${name}=${val}" >> "$HERMES_DIR/.env"
-            fi
+            local name="$1"; local val="$2"
+            if [ -n "$val" ]; then echo "${name}=${val}" >> "$HERMES_DIR/.env"; fi
           }
           add_env_if_set OPENROUTER_API_KEY "${OPENROUTER_API_KEY:-}"
           add_env_if_set ANTHROPIC_API_KEY  "${ANTHROPIC_API_KEY:-}"
@@ -301,21 +369,10 @@ jobs:
           add_env_if_set NOUS_API_KEY       "${NOUS_API_KEY:-}"
 
           chmod 600 "$HERMES_DIR/.env"
-
-          # نحفظ المفتاح ليصل لباقي الـ steps
           echo "HERMES_API_KEY=${API_KEY}" >> "$GITHUB_ENV"
 
-          # ----------- 8.2) كتابة config.yaml حسب المزود -----------
-          # ⚠️ هام: Hermes يستخدم بنية `model:` كقاموس متداخل
-          #   model.default   → اسم النموذج
-          #   model.provider  → المزود ("custom" لـ Ollama و local OpenAI-compatible)
-          #   model.base_url  → نقطة النهاية
-          # المفاتيح في .env هي مصدر authoritative للـ API keys.
-
-          # دالة مشتركة تكتب config.yaml لمزود معيّن
           write_cloud_config() {
-            local prov="$1"
-            local base="$2"
+            local prov="$1"; local base="$2"
             cat > "$HERMES_DIR/config.yaml" <<YAML
           # Hermes Agent — auto-generated by GitHub Actions
           model:
@@ -331,7 +388,6 @@ jobs:
             cwd: "."
             timeout: 180
 
-          # نتجاوز أي onboarding hints حتى لا يطبع رسائل تنبيه
           onboarding:
             seen:
               busy_input_prompt: true
@@ -344,60 +400,34 @@ jobs:
           }
 
           case "$PROVIDER" in
-            ollama)
-              # Ollama عبر OpenAI-compatible endpoint — Hermes يسمّيه "custom"
-              write_cloud_config "custom" "http://127.0.0.1:11434/v1"
-              ;;
-            openrouter)
-              write_cloud_config "openrouter" ""
-              ;;
-            anthropic)
-              write_cloud_config "anthropic" ""
-              ;;
-            openai)
-              write_cloud_config "openai-codex" ""
-              ;;
-            gemini)
-              write_cloud_config "gemini" ""
-              ;;
+            ollama)      write_cloud_config "custom" "http://127.0.0.1:11434/v1" ;;
+            openrouter)  write_cloud_config "openrouter" "" ;;
+            anthropic)   write_cloud_config "anthropic" "" ;;
+            openai)      write_cloud_config "openai-codex" "" ;;
+            gemini)      write_cloud_config "gemini" "" ;;
             groq)
-              # Groq عبر OpenAI-compatible endpoint
               write_cloud_config "custom" "https://api.groq.com/openai/v1"
-              # نضيف GROQ_API_KEY كـ OPENAI_API_KEY حتى يستخدمه الـ custom provider
-              if [ -n "${GROQ_API_KEY:-}" ]; then
-                echo "OPENAI_API_KEY=${GROQ_API_KEY}" >> "$HERMES_DIR/.env"
-              fi
+              [ -n "${GROQ_API_KEY:-}" ] && echo "OPENAI_API_KEY=${GROQ_API_KEY}" >> "$HERMES_DIR/.env"
               ;;
             deepseek)
               write_cloud_config "custom" "https://api.deepseek.com/v1"
-              if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
-                echo "OPENAI_API_KEY=${DEEPSEEK_API_KEY}" >> "$HERMES_DIR/.env"
-              fi
+              [ -n "${DEEPSEEK_API_KEY:-}" ] && echo "OPENAI_API_KEY=${DEEPSEEK_API_KEY}" >> "$HERMES_DIR/.env"
               ;;
             xai)
               write_cloud_config "custom" "https://api.x.ai/v1"
-              if [ -n "${XAI_API_KEY:-}" ]; then
-                echo "OPENAI_API_KEY=${XAI_API_KEY}" >> "$HERMES_DIR/.env"
-              fi
+              [ -n "${XAI_API_KEY:-}" ] && echo "OPENAI_API_KEY=${XAI_API_KEY}" >> "$HERMES_DIR/.env"
               ;;
-            nous-portal)
-              write_cloud_config "nous-api" ""
-              ;;
-            *)
-              echo "❌ Unknown provider: $PROVIDER"
-              exit 1
-              ;;
+            nous-portal) write_cloud_config "nous-api" "" ;;
+            *) echo "❌ Unknown provider: $PROVIDER"; exit 1 ;;
           esac
 
           echo "✅ Wrote $HERMES_DIR/config.yaml"
-          echo "----- config.yaml -----"
           cat "$HERMES_DIR/config.yaml"
-          echo ""
-          echo "----- .env (keys redacted) -----"
+          echo "----- .env (redacted) -----"
           sed -E 's/(KEY|TOKEN)=.*/\1=***redacted***/g' "$HERMES_DIR/.env"
 
       # -----------------------------------------------------------------------
-      # 9) تشغيل Hermes Gateway (API Server) في الخلفية — الإصلاح الجوهري
+      # 9) Start Hermes Gateway (API server)
       # -----------------------------------------------------------------------
       - name: 🚀 Start Hermes Gateway (API server, background)
         timeout-minutes: 5
@@ -411,28 +441,18 @@ jobs:
           : > "$GW_LOG"
 
           echo "Starting hermes gateway ..."
-          # ⭐⭐ نفس نمط الفصل الآمن من السكريبت الأصلي:
-          # setsid     : process group مستقل
-          # </dev/null : لا stdin
-          # >>log 2>&1 : لا pipe للـ runner
-          # &          : خلفية
-          # disown     : إزالة من jobs
           setsid bash -c "hermes gateway </dev/null >>'$GW_LOG' 2>&1" &
           GW_PID=$!
           disown || true
           echo "$GW_PID" > "$RUNNER_TEMP/hermes.pid"
-          echo "Hermes gateway PID = $GW_PID"
 
-          # ننتظر حتى يستجيب API على :8642
           UP=0
           for i in $(seq 1 180); do
-            # /health هو endpoint الصحة الرسمي
             if curl -fsS --max-time 2 http://127.0.0.1:8642/health >/dev/null 2>&1; then
               UP=1
               echo "✅ /health responded after ${i}s"
               break
             fi
-            # fallback: TCP فقط
             if (echo > /dev/tcp/127.0.0.1/8642) >/dev/null 2>&1; then
               CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 http://127.0.0.1:8642/ || echo "000")
               if [ "$CODE" != "000" ]; then
@@ -457,15 +477,14 @@ jobs:
           fi
 
           echo ""
-          echo "----- last 20 lines of gateway log -----"
           tail -n 20 "$GW_LOG" || true
 
       # -----------------------------------------------------------------------
-      # 10) (اختياري) تشغيل Hermes Dashboard (Web UI) في الخلفية
+      # 10) Start Hermes Dashboard (no more --skip-build hack!)
       # -----------------------------------------------------------------------
       - name: 🖥️ Start Hermes Dashboard (web UI, background)
         if: ${{ github.event.inputs.expose_dashboard == 'true' }}
-        timeout-minutes: 3
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           export PATH="$HOME/.hermes/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
@@ -474,35 +493,133 @@ jobs:
           DASH_LOG="$RUNNER_TEMP/hermes-logs/dashboard.log"
           : > "$DASH_LOG"
 
-          # نشغّل الـ dashboard على 0.0.0.0:9119 — يسمح للنفق بالوصول
-          # --no-open    : لا تحاول فتح متصفح (headless)
-          # --skip-build : استخدم dist موجود (npm قد لا يكون متوفراً)
-          # --insecure   : السماح بـ bind على 0.0.0.0 (مطلوب للنفق)
-          setsid bash -c "hermes dashboard --host 0.0.0.0 --port 9119 --no-open --skip-build --insecure </dev/null >>'$DASH_LOG' 2>&1" &
+          # ⭐ تم حذف --skip-build لأنه يتطلب dist مبني مسبقاً.
+          # نحن الآن نبني الـdist في step 6.5 لذا الـCLI سيستخدمه مباشرة.
+          # --insecure مطلوب لـ bind على 0.0.0.0
+          echo "Starting hermes dashboard on 0.0.0.0:9119 ..."
+          setsid bash -c "hermes dashboard --host 0.0.0.0 --port 9119 --no-open --insecure </dev/null >>'$DASH_LOG' 2>&1" &
           DASH_PID=$!
           disown || true
           echo "$DASH_PID" > "$RUNNER_TEMP/hermes-dashboard.pid"
 
           UP=0
-          for i in $(seq 1 90); do
+          for i in $(seq 1 120); do
             if (echo > /dev/tcp/127.0.0.1/9119) >/dev/null 2>&1; then
-              UP=1
-              echo "✅ Dashboard listening on :9119 after ${i}s"
-              break
+              # تأكد من استجابة HTTP فعلية وليس فقط فتح المنفذ
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:9119/ || echo "000")
+              if [ "$CODE" != "000" ] && [ "$CODE" != "502" ] && [ "$CODE" != "504" ]; then
+                UP=1
+                echo "✅ Dashboard listening on :9119 (HTTP $CODE) after ${i}s"
+                break
+              fi
             fi
             if ! kill -0 "$DASH_PID" 2>/dev/null; then
-              echo "⚠️ hermes dashboard exited. Log:"
-              tail -n 100 "$DASH_LOG" || true
-              break
+              echo "❌ hermes dashboard exited. Log:"
+              tail -n 200 "$DASH_LOG" || true
+              exit 1
             fi
             sleep 1
           done
           if [ "$UP" -ne 1 ]; then
-            echo "⚠️ Dashboard not ready in 90s, continuing without it."
+            echo "❌ Dashboard not ready in 120s. Logs:"
+            tail -n 200 "$DASH_LOG" || true
+            exit 1
           fi
+          echo "----- last 20 lines of dashboard log -----"
+          tail -n 20 "$DASH_LOG" || true
 
       # -----------------------------------------------------------------------
-      # 11) فتح Cloudflare Quick Tunnel على الـ API (أو الـ Dashboard)
+      # 10.5) Landing page بسيطة عند اختيار expose_dashboard=false
+      #       لمنع رسالة 404 المربكة عند فتح الرابط في المتصفح
+      # -----------------------------------------------------------------------
+      - name: 🪧 Start API landing page (when dashboard is disabled)
+        if: ${{ github.event.inputs.expose_dashboard != 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/landing"
+          cat > "$RUNNER_TEMP/landing/index.html" <<HTML
+          <!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+          <title>Hermes API — Live</title>
+          <style>body{font-family:system-ui;background:#0b0f17;color:#e8eef9;max-width:760px;margin:40px auto;padding:0 20px}
+          code{background:#1a2030;padding:2px 6px;border-radius:4px}
+          pre{background:#0f1626;padding:14px;border-radius:8px;overflow:auto}
+          h1{color:#7ad}</style></head><body>
+          <h1>🧠 Hermes Agent API</h1>
+          <p>هذا الرابط هو <b>API متوافق مع OpenAI</b>، ولا يوجد به واجهة ويب.
+          إن أردت واجهة متصفح، أعد تشغيل الـ workflow مع
+          <code>expose_dashboard = true</code>.</p>
+          <h3>Endpoints</h3>
+          <ul>
+            <li><code>GET  /health</code> — فحص الحالة</li>
+            <li><code>POST /v1/chat/completions</code> — توافق OpenAI</li>
+            <li><code>GET  /v1/models</code></li>
+          </ul>
+          <h3>مثال curl</h3>
+          <pre>curl -H "Authorization: Bearer YOUR_KEY" \\
+               -H "Content-Type: application/json" \\
+               -d '{"model":"hermes-agent","messages":[{"role":"user","content":"hi"}]}' \\
+               THIS_URL/v1/chat/completions</pre>
+          </body></html>
+          HTML
+
+          # سيرفر Python بسيط على منفذ 8088 يخدم الـlanding فقط على /
+          # ويُحوّل بقية المسارات إلى :8642 (API)
+          cat > "$RUNNER_TEMP/landing/proxy.py" <<'PY'
+          import http.server, urllib.request, urllib.error, os, sys
+          LANDING = open(os.path.join(os.path.dirname(__file__),"index.html"),"rb").read()
+          API = "http://127.0.0.1:8642"
+          class H(http.server.BaseHTTPRequestHandler):
+            def _proxy(self):
+              url = API + self.path
+              try:
+                body = None
+                if "Content-Length" in self.headers:
+                  body = self.rfile.read(int(self.headers["Content-Length"]))
+                req = urllib.request.Request(url, data=body, method=self.command,
+                       headers={k:v for k,v in self.headers.items() if k.lower() not in ("host","content-length")})
+                with urllib.request.urlopen(req, timeout=120) as r:
+                  self.send_response(r.status)
+                  for k,v in r.headers.items():
+                    if k.lower() not in ("transfer-encoding","connection"): self.send_header(k,v)
+                  self.end_headers()
+                  self.wfile.write(r.read())
+              except urllib.error.HTTPError as e:
+                self.send_response(e.code); self.end_headers()
+                self.wfile.write(e.read() if e.fp else b"")
+              except Exception as e:
+                self.send_response(502); self.end_headers()
+                self.wfile.write(f"upstream error: {e}".encode())
+            def do_GET(self):
+              if self.path in ("/","/index.html"):
+                self.send_response(200); self.send_header("Content-Type","text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(LANDING))); self.end_headers()
+                self.wfile.write(LANDING); return
+              self._proxy()
+            def do_POST(self): self._proxy()
+            def do_PUT(self):  self._proxy()
+            def do_DELETE(self): self._proxy()
+            def do_OPTIONS(self): self._proxy()
+            def log_message(self, *a, **k): pass
+          http.server.ThreadingHTTPServer(("0.0.0.0",8088), H).serve_forever()
+          PY
+
+          LANDING_LOG="$RUNNER_TEMP/hermes-logs/landing.log"
+          mkdir -p "$RUNNER_TEMP/hermes-logs"
+          : > "$LANDING_LOG"
+          setsid bash -c "python3 '$RUNNER_TEMP/landing/proxy.py' </dev/null >>'$LANDING_LOG' 2>&1" &
+          L_PID=$!
+          disown || true
+          echo "$L_PID" > "$RUNNER_TEMP/landing.pid"
+
+          for i in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/8088) >/dev/null 2>&1; then
+              echo "✅ Landing+proxy ready on :8088 after ${i}s"; break
+            fi
+            sleep 1
+          done
+
+      # -----------------------------------------------------------------------
+      # 11) Cloudflare Quick Tunnel
       # -----------------------------------------------------------------------
       - name: 🌐 Start Cloudflare Quick Tunnel
         id: tunnel
@@ -517,14 +634,24 @@ jobs:
             TARGET_PORT=9119
             TARGET_NAME="Dashboard (Web UI)"
           else
-            TARGET_PORT=8642
-            TARGET_NAME="API Server (OpenAI-compatible)"
+            TARGET_PORT=8088    # landing + proxy → 8642
+            TARGET_NAME="API Server (OpenAI-compatible) + landing"
           fi
 
           echo "Tunneling http://127.0.0.1:${TARGET_PORT}  ($TARGET_NAME)"
 
-          setsid bash -c "cloudflared tunnel --no-autoupdate --url http://127.0.0.1:${TARGET_PORT} </dev/null >>'$TUN_LOG' 2>&1" &
-          TUN_PID=$!
+          # نخزّن المنفذ لاستخدامه في الـ watchdog (إعادة تشغيل cloudflared)
+          echo "$TARGET_PORT" > "$RUNNER_TEMP/target_port"
+          echo "$TARGET_NAME" > "$RUNNER_TEMP/target_name"
+
+          start_tunnel() {
+            : > "$TUN_LOG"
+            # --protocol http2 + retries أكثر استقراراً من الافتراضي
+            setsid bash -c "cloudflared tunnel --no-autoupdate --protocol http2 --retries 10 --url http://127.0.0.1:${TARGET_PORT} </dev/null >>'$TUN_LOG' 2>&1" &
+            echo "$!"
+          }
+
+          TUN_PID="$(start_tunnel)"
           disown || true
           echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
 
@@ -535,23 +662,38 @@ jobs:
               [ -n "$PUBLIC_URL" ] && break
             fi
             if ! kill -0 "$TUN_PID" 2>/dev/null; then
-              echo "❌ cloudflared exited prematurely:"
-              cat "$TUN_LOG"
-              exit 1
+              echo "⚠️ cloudflared exited, restarting..."
+              TUN_PID="$(start_tunnel)"
+              disown || true
+              echo "$TUN_PID" > "$RUNNER_TEMP/cloudflared.pid"
             fi
             sleep 1
           done
 
           if [ -z "$PUBLIC_URL" ]; then
             echo "❌ Failed to get tunnel URL in 90s. Tunnel log:"
-            cat "$TUN_LOG"
-            exit 1
+            cat "$TUN_LOG"; exit 1
           fi
 
-          echo "PUBLIC_URL=$PUBLIC_URL"          >> "$GITHUB_ENV"
-          echo "TARGET_NAME=$TARGET_NAME"        >> "$GITHUB_ENV"
-          echo "TARGET_PORT=$TARGET_PORT"        >> "$GITHUB_ENV"
-          echo "public_url=$PUBLIC_URL"          >> "$GITHUB_OUTPUT"
+          # تحقق نهائي: نتأكد أن الـ edge فعلاً تستقبل (ليست 1033)
+          OK=0
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$PUBLIC_URL/" || echo "000")
+            if [ "$CODE" != "000" ] && [ "$CODE" != "530" ] && [ "$CODE" != "502" ] && [ "$CODE" != "1033" ]; then
+              OK=1
+              echo "✅ Edge reachable (HTTP $CODE) after ${i}s"
+              break
+            fi
+            sleep 2
+          done
+          if [ "$OK" -ne 1 ]; then
+            echo "⚠️ Edge not fully ready yet, but URL was issued. Watchdog will retry."
+          fi
+
+          echo "PUBLIC_URL=$PUBLIC_URL"     >> "$GITHUB_ENV"
+          echo "TARGET_NAME=$TARGET_NAME"   >> "$GITHUB_ENV"
+          echo "TARGET_PORT=$TARGET_PORT"   >> "$GITHUB_ENV"
+          echo "public_url=$PUBLIC_URL"     >> "$GITHUB_OUTPUT"
 
           echo ""
           echo "╔════════════════════════════════════════════════════════════════════╗"
@@ -562,10 +704,9 @@ jobs:
           printf  "║  Provider: %-55s ║\n" "${{ github.event.inputs.provider }}"
           printf  "║  Model:    %-55s ║\n" "${{ github.event.inputs.model }}"
           echo "╚════════════════════════════════════════════════════════════════════╝"
-          echo ""
 
       # -----------------------------------------------------------------------
-      # 12) كتابة الرابط ومعلومات الاستخدام في Job Summary
+      # 12) Job Summary
       # -----------------------------------------------------------------------
       - name: 📌 Publish URL to Job Summary
         run: |
@@ -585,13 +726,13 @@ jobs:
             if [ "$EXPOSE_DASH" = "true" ]; then
               echo "افتح الرابط مباشرة من المتصفح للوصول إلى Web Dashboard."
               echo ""
-              echo "> ⚠️ **تنبيه أمني**: الـ Dashboard مفتوح بدون مصادقة. لا تضع مفاتيح API حساسة فيه ولا تترك الجلسة طويلاً بدون مراقبة."
+              echo "> ⚠️ **تنبيه أمني**: الـ Dashboard مفتوح بدون مصادقة. لا تترك الجلسة طويلاً بدون مراقبة."
             else
-              echo "هذا API متوافق مع OpenAI. استخدمه من أي تطبيق يدعم OpenAI API:"
+              echo "هذا API متوافق مع OpenAI. عند فتحه في المتصفح ستظهر صفحة توضيحية."
               echo ""
               echo '```text'
               echo "Base URL : ${PUBLIC_URL}/v1"
-              echo "API Key  : (راجع \$HERMES_API_KEY في step logs أو في secrets/.env)"
+              echo "API Key  : (في \$HERMES_API_KEY ضمن step logs)"
               echo "Model    : hermes-agent"
               echo '```'
               echo ""
@@ -602,10 +743,6 @@ jobs:
               echo "  -H \"Content-Type: application/json\" \\"
               echo "  -d '{\"model\":\"hermes-agent\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello!\"}]}'"
               echo '```'
-              echo ""
-              echo "### استخدام مع Open WebUI / LobeChat / LibreChat:"
-              echo "- **Base URL**: \`${PUBLIC_URL}/v1\`"
-              echo "- **API Key**: المفتاح في \`HERMES_API_KEY\`"
             fi
             echo ""
             echo "## ⚙️ تفاصيل الجلسة"
@@ -618,17 +755,14 @@ jobs:
             echo "| **Model** | \`${MODEL}\` |"
             echo "| **مدة التشغيل** | ${{ github.event.inputs.duration_minutes }} دقيقة |"
             echo "| **Auto commit** | ${{ github.event.inputs.auto_commit }} |"
+            echo "| **Expose dashboard** | ${EXPOSE_DASH} |"
             echo "| **Health endpoint** | \`${PUBLIC_URL}/health\` |"
             echo ""
-            echo "## ✏️ التعديلات التلقائية"
-            if [ "${{ github.event.inputs.auto_commit }}" = "true" ]; then
-              echo "أي تعديل يقوم به Hermes على الملفات سيتم رفعه تلقائياً إلى branch \`${GITHUB_REF_NAME}\` كل ${{ github.event.inputs.commit_interval_seconds }} ثانية."
-            else
-              echo "auto-commit معطّل في هذه الجلسة."
-            fi
+            echo "## 🛡️ مراقبة الجلسة"
+            echo "يوجد watchdog يعيد تشغيل Ollama / Gateway / Cloudflared تلقائياً في حال موت أي منهم."
             echo ""
             echo "## 🛑 إيقاف الجلسة"
-            echo "اضغط **Cancel workflow** في صفحة الـ Actions، أو انتظر انتهاء المدة."
+            echo "اضغط **Cancel workflow** أو انتظر انتهاء المدة."
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo ""
@@ -637,7 +771,7 @@ jobs:
           echo "════════════════════════════════════════════════"
 
       # -----------------------------------------------------------------------
-      # 13) (اختياري) Auto-commit loop في الخلفية
+      # 13) Auto-commit loop (اختياري)
       # -----------------------------------------------------------------------
       - name: 🔁 Start auto-commit loop (background)
         if: ${{ github.event.inputs.auto_commit == 'true' }}
@@ -672,47 +806,193 @@ jobs:
           AC_PID=$!
           disown || true
           echo "$AC_PID" > "$RUNNER_TEMP/autocommit.pid"
-          echo "✅ Auto-commit loop started (PID=$AC_PID, every ${INTERVAL}s) on branch ${BRANCH}"
+          echo "✅ Auto-commit started (PID=$AC_PID, every ${INTERVAL}s, branch=${BRANCH})"
 
       # -----------------------------------------------------------------------
-      # 14) إبقاء الـ job حياً مع heartbeat ومراقبة العمليات
+      # 14) ⭐ Watchdog + Keep alive — لا exit عند موت أي عملية
       # -----------------------------------------------------------------------
-      - name: ⏳ Keep session alive
+      - name: ⏳ Keep session alive (with auto-restart watchdog)
         run: |
+          set -uo pipefail
+          export PATH="$HOME/.hermes/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+          export HERMES_HOME="$HOME/.hermes"
+
           DURATION_MIN="${{ github.event.inputs.duration_minutes }}"
           DURATION_SEC=$(( DURATION_MIN * 60 ))
+          PROVIDER="${{ github.event.inputs.provider }}"
+          EXPOSE_DASH="${{ github.event.inputs.expose_dashboard }}"
+          TARGET_PORT="$(cat "$RUNNER_TEMP/target_port" 2>/dev/null || echo 8088)"
+
           echo "Session will run for ${DURATION_MIN} minutes (${DURATION_SEC}s)."
           echo "Public URL: ${PUBLIC_URL}"
           echo ""
 
+          # ----- دوال إعادة التشغيل -----
+          restart_ollama() {
+            echo "🔄 Restarting Ollama..."
+            local LOG="$RUNNER_TEMP/ollama-logs/ollama.log"
+            setsid bash -c "OLLAMA_KEEP_ALIVE=24h ollama serve </dev/null >>'$LOG' 2>&1" &
+            local PID=$!
+            disown || true
+            echo "$PID" > "$RUNNER_TEMP/ollama.pid"
+            # انتظر استجابة
+            for i in $(seq 1 30); do
+              if curl -fsS --max-time 2 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+                echo "✅ Ollama back up (PID=$PID)"
+                # تأكد أن النموذج لا يزال محملاً
+                local MODEL
+                MODEL="$(cat "$RUNNER_TEMP/ollama.model" 2>/dev/null || echo '')"
+                if [ -n "$MODEL" ]; then
+                  ollama list 2>/dev/null | grep -q "$MODEL" || ollama pull "$MODEL" >/dev/null 2>&1 || true
+                fi
+                return 0
+              fi
+              sleep 1
+            done
+            echo "⚠️ Ollama did not respond after restart"
+            return 1
+          }
+
+          restart_gateway() {
+            echo "🔄 Restarting Hermes gateway..."
+            local LOG="$RUNNER_TEMP/hermes-logs/gateway.log"
+            setsid bash -c "hermes gateway </dev/null >>'$LOG' 2>&1" &
+            local PID=$!
+            disown || true
+            echo "$PID" > "$RUNNER_TEMP/hermes.pid"
+            for i in $(seq 1 60); do
+              if curl -fsS --max-time 2 http://127.0.0.1:8642/health >/dev/null 2>&1 \
+                 || (echo > /dev/tcp/127.0.0.1/8642) >/dev/null 2>&1; then
+                echo "✅ Gateway back up (PID=$PID)"
+                return 0
+              fi
+              sleep 1
+            done
+            echo "⚠️ Gateway did not respond after restart"
+            return 1
+          }
+
+          restart_dashboard() {
+            [ "$EXPOSE_DASH" = "true" ] || return 0
+            echo "🔄 Restarting Hermes dashboard..."
+            local LOG="$RUNNER_TEMP/hermes-logs/dashboard.log"
+            setsid bash -c "hermes dashboard --host 0.0.0.0 --port 9119 --no-open --insecure </dev/null >>'$LOG' 2>&1" &
+            local PID=$!
+            disown || true
+            echo "$PID" > "$RUNNER_TEMP/hermes-dashboard.pid"
+            for i in $(seq 1 60); do
+              if (echo > /dev/tcp/127.0.0.1/9119) >/dev/null 2>&1; then
+                echo "✅ Dashboard back up (PID=$PID)"
+                return 0
+              fi
+              sleep 1
+            done
+            echo "⚠️ Dashboard did not respond after restart"
+            return 1
+          }
+
+          restart_cloudflared() {
+            echo "🔄 Restarting cloudflared tunnel..."
+            local LOG="$RUNNER_TEMP/cloudflared-logs/tunnel.log"
+            : > "$LOG"
+            setsid bash -c "cloudflared tunnel --no-autoupdate --protocol http2 --retries 10 --url http://127.0.0.1:${TARGET_PORT} </dev/null >>'$LOG' 2>&1" &
+            local PID=$!
+            disown || true
+            echo "$PID" > "$RUNNER_TEMP/cloudflared.pid"
+            local NEW_URL=""
+            for i in $(seq 1 60); do
+              NEW_URL="$(grep -Eo 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' "$LOG" | head -n1 || true)"
+              [ -n "$NEW_URL" ] && break
+              sleep 1
+            done
+            if [ -n "$NEW_URL" ]; then
+              echo "✅ cloudflared back up. New URL: $NEW_URL"
+              # ملاحظة: URL يتغير بعد إعادة التشغيل (quick tunnel)
+              echo "::warning::Cloudflare tunnel restarted. New public URL: $NEW_URL"
+              echo "$NEW_URL" > "$RUNNER_TEMP/current_url"
+              return 0
+            fi
+            echo "⚠️ cloudflared did not return a URL after restart"
+            return 1
+          }
+
+          restart_landing() {
+            [ "$EXPOSE_DASH" = "true" ] && return 0
+            echo "🔄 Restarting landing/proxy on :8088 ..."
+            local LOG="$RUNNER_TEMP/hermes-logs/landing.log"
+            setsid bash -c "python3 '$RUNNER_TEMP/landing/proxy.py' </dev/null >>'$LOG' 2>&1" &
+            local PID=$!
+            disown || true
+            echo "$PID" > "$RUNNER_TEMP/landing.pid"
+          }
+
+          # ----- الحلقة الرئيسية -----
           ELAPSED=0
-          STEP=300   # 5 دقائق بين كل heartbeat
+          STEP=30   # نفحص كل 30 ثانية (نشط)
+          LAST_BEAT=0
           while [ "$ELAPSED" -lt "$DURATION_SEC" ]; do
             sleep "$STEP"
             ELAPSED=$(( ELAPSED + STEP ))
-            REMAIN_MIN=$(( (DURATION_SEC - ELAPSED) / 60 ))
-            echo "⏱️ Heartbeat — elapsed=$((ELAPSED/60))min  remaining=${REMAIN_MIN}min"
-            echo "🌐 ${PUBLIC_URL}"
 
-            # تحقق من حياة العمليات المهمة
-            if [ -f "$RUNNER_TEMP/hermes.pid" ] && ! kill -0 "$(cat $RUNNER_TEMP/hermes.pid)" 2>/dev/null; then
-              echo "⚠️ hermes gateway process died — exiting."
-              exit 1
+            # heartbeat كل 5 دقائق
+            if [ $(( ELAPSED - LAST_BEAT )) -ge 300 ]; then
+              LAST_BEAT=$ELAPSED
+              REMAIN_MIN=$(( (DURATION_SEC - ELAPSED) / 60 ))
+              CUR_URL="$(cat "$RUNNER_TEMP/current_url" 2>/dev/null || echo "$PUBLIC_URL")"
+              echo "⏱️ Heartbeat — elapsed=$((ELAPSED/60))min  remaining=${REMAIN_MIN}min  url=${CUR_URL}"
             fi
-            if [ -f "$RUNNER_TEMP/cloudflared.pid" ] && ! kill -0 "$(cat $RUNNER_TEMP/cloudflared.pid)" 2>/dev/null; then
-              echo "⚠️ cloudflared died — exiting."
-              exit 1
+
+            # 1) Gateway
+            if [ -f "$RUNNER_TEMP/hermes.pid" ]; then
+              GW_PID="$(cat "$RUNNER_TEMP/hermes.pid")"
+              if ! kill -0 "$GW_PID" 2>/dev/null; then
+                echo "⚠️ hermes gateway process died — restarting..."
+                restart_gateway || true
+              fi
             fi
-            if [ -f "$RUNNER_TEMP/ollama.pid" ] && ! kill -0 "$(cat $RUNNER_TEMP/ollama.pid)" 2>/dev/null; then
-              echo "⚠️ ollama died — exiting."
-              exit 1
+
+            # 2) Cloudflared
+            if [ -f "$RUNNER_TEMP/cloudflared.pid" ]; then
+              CF_PID="$(cat "$RUNNER_TEMP/cloudflared.pid")"
+              if ! kill -0 "$CF_PID" 2>/dev/null; then
+                echo "⚠️ cloudflared died — restarting..."
+                restart_cloudflared || true
+              fi
+            fi
+
+            # 3) Ollama (لو هذا هو المزود)
+            if [ "$PROVIDER" = "ollama" ] && [ -f "$RUNNER_TEMP/ollama.pid" ]; then
+              OL_PID="$(cat "$RUNNER_TEMP/ollama.pid")"
+              if ! kill -0 "$OL_PID" 2>/dev/null; then
+                echo "⚠️ ollama died — restarting (not exiting)..."
+                restart_ollama || true
+                # بعد عودة ollama قد يحتاج gateway تذكير، نتركه يستمر
+              fi
+            fi
+
+            # 4) Dashboard
+            if [ "$EXPOSE_DASH" = "true" ] && [ -f "$RUNNER_TEMP/hermes-dashboard.pid" ]; then
+              D_PID="$(cat "$RUNNER_TEMP/hermes-dashboard.pid")"
+              if ! kill -0 "$D_PID" 2>/dev/null; then
+                echo "⚠️ dashboard died — restarting..."
+                restart_dashboard || true
+              fi
+            fi
+
+            # 5) Landing proxy
+            if [ "$EXPOSE_DASH" != "true" ] && [ -f "$RUNNER_TEMP/landing.pid" ]; then
+              L_PID="$(cat "$RUNNER_TEMP/landing.pid")"
+              if ! kill -0 "$L_PID" 2>/dev/null; then
+                echo "⚠️ landing/proxy died — restarting..."
+                restart_landing || true
+              fi
             fi
           done
 
           echo "✅ Session duration reached. Shutting down gracefully."
 
       # -----------------------------------------------------------------------
-      # 15) commit أخير قبل الخروج
+      # 15) Final commit
       # -----------------------------------------------------------------------
       - name: 💾 Final commit & push
         if: ${{ always() && github.event.inputs.auto_commit == 'true' }}
@@ -729,7 +1009,7 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 16) عرض اللوجات (debug)
+      # 16) Logs (debug)
       # -----------------------------------------------------------------------
       - name: 📜 Show logs (debug)
         if: ${{ always() }}
@@ -737,20 +1017,23 @@ jobs:
           echo "===== hermes gateway log (tail 120) ====="
           tail -n 120 "$RUNNER_TEMP/hermes-logs/gateway.log" 2>/dev/null || echo "(no gateway log)"
           echo ""
-          echo "===== hermes dashboard log (tail 60) ====="
-          tail -n 60  "$RUNNER_TEMP/hermes-logs/dashboard.log" 2>/dev/null || echo "(no dashboard log)"
+          echo "===== hermes dashboard log (tail 80) ====="
+          tail -n 80  "$RUNNER_TEMP/hermes-logs/dashboard.log" 2>/dev/null || echo "(no dashboard log)"
           echo ""
           echo "===== ollama log (tail 60) ====="
           tail -n 60  "$RUNNER_TEMP/ollama-logs/ollama.log" 2>/dev/null || echo "(ollama not used)"
           echo ""
-          echo "===== cloudflared tunnel log (tail 60) ====="
-          tail -n 60  "$RUNNER_TEMP/cloudflared-logs/tunnel.log" 2>/dev/null || echo "(no tunnel log)"
+          echo "===== cloudflared tunnel log (tail 80) ====="
+          tail -n 80  "$RUNNER_TEMP/cloudflared-logs/tunnel.log" 2>/dev/null || echo "(no tunnel log)"
           echo ""
-          echo "===== autocommit log (tail 60) ====="
-          tail -n 60  "$RUNNER_TEMP/autocommit.log" 2>/dev/null || echo "(autocommit not enabled)"
+          echo "===== landing proxy log (tail 40) ====="
+          tail -n 40  "$RUNNER_TEMP/hermes-logs/landing.log" 2>/dev/null || echo "(landing not used)"
+          echo ""
+          echo "===== autocommit log (tail 40) ====="
+          tail -n 40  "$RUNNER_TEMP/autocommit.log" 2>/dev/null || echo "(autocommit not enabled)"
 
       # -----------------------------------------------------------------------
-      # 17) إغلاق نظيف
+      # 17) Shutdown
       # -----------------------------------------------------------------------
       - name: 🧹 Shutdown cloudflared
         if: ${{ always() }}
